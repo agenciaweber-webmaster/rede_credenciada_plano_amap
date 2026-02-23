@@ -1,0 +1,197 @@
+.busca-cep-section {
+  padding: 20px 15px 25px;
+  max-width: 1200px;
+  margin: 40px auto;
+}
+
+.flex-container {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.flex-container > div {
+  margin: 10px;
+  text-align: center;
+  line-height: 75px;
+  font-size: 30px;
+}
+
+h1 {
+  font-size: 3em !important;
+  line-height: 1.167em !important;
+}
+
+h1, h2, h3, h4, h5 {
+  font-weight: 800 !important;
+}
+
+#instructions{
+  background-color: #f7f7f7;;
+  text-align: center;
+  padding: 25px;
+}
+
+#descricao {
+  margin: 10px;
+  padding: 10px;
+  text-align: center;
+}
+
+#div_cidade{
+  display:none;
+}
+#div_bairro{
+  display:none;
+}
+#div_especialidade{
+  display:none;
+}
+#qualificacao{
+  display:none;
+  padding: 10px;
+  margin: 40px 10px;
+}
+
+#accordion {
+  margin: 10px;
+  padding: 10px;
+}
+
+@media print
+{    
+  table { page-break-inside:auto }
+    .even    { page-break-inside:avoid; page-break-after:auto }
+    thead { display:table-header-group }
+    tfoot { display:table-footer-group }
+
+    .no-print, .no-print *
+    {
+        display: none !important;
+    }
+
+    .even-print
+    {
+        display:table-row !important;
+    }
+
+    #aviso 
+    {
+      display: block !important;
+      page-break-inside: avoid;
+    }
+
+}
+
+#btn_print {
+  display: none;
+}
+
+#aviso {
+  text-align: center;
+  display: none;
+}
+
+.open_button {
+  background:url('./details_open.png') no-repeat center center;
+}
+
+.close_button {
+  background:url('./details_close.png') no-repeat center center;
+}
+
+ @media screen and (max-width: 768px) {
+  .odd {
+    display: none;
+  }
+  .even {
+    display: table-row;
+  }
+  thead {
+    display: none;
+  }
+  .busca-cep-section {
+    margin: 20px auto;
+  }
+ }
+
+ @media screen and (min-width: 768px) {
+  .odd {
+    display: table-row;
+  }
+  .even {
+    display: none;
+  }
+  thead {
+    display: table-header-group;
+  }
+ }
+
+
+
+
+/* Pagination */
+.link {
+  padding: 10px 15px;
+  background: transparent;
+  border:#bccfd8 1px solid;
+  border-left:0px;
+  cursor:pointer;
+  color:#607d8b
+}
+
+.disabled {
+  cursor:not-allowed;
+  color: #bccfd8;
+}
+
+.current {
+  background: #bccfd8;
+}
+
+.first{
+  border-left:#bccfd8 1px solid;
+}
+
+#pagination{
+  margin-top: 20px;
+  padding-top: 30px;
+  border-top: #F0F0F0 1px solid;
+}
+
+.dot {
+  padding: 10px 15px;
+  background: transparent;
+  border-right: #bccfd8 1px solid;
+}
+
+#overlay {
+  background-color: rgba(0, 0, 0, 0.6);
+  z-index: 999;
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  display: none;
+}
+
+#overlay div {
+  position:absolute;
+  left:50%;
+  top:50%;
+  margin-top:-32px;
+  margin-left:-32px;
+}
+
+.page-content {
+  padding: 20px;
+  margin: 0 auto;
+}
+
+.pagination-setting {
+  padding:10px; 
+  margin:5px 0px 10px;
+  border:#bccfd8  1px solid;
+  color:#607d8b;
+}

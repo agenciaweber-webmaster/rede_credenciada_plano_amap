@@ -1,0 +1,6 @@
+razao,fantasia,plano,especialidade,cnpj,whatsapp,telefone,horario,cep,rua,numero,bairro,municipio,estado,pais,status
+"Laboratório São Paulo Ltda","Lab São Paulo - Centro","AMO Médico","Análises Clínicas","12.345.678/0001-90","(11) 99999-1111","(11) 3333-1111","Seg a Sex 8h às 18h","01310-100","","1000","","","","","ativo"
+"Clínica Médica Amap Saúde","Clínica Amap - Vila Mariana","AMAP Médico","Cardiologia","23.456.789/0001-91","(11) 99999-2222","(11) 3333-2222","Seg a Sex 7h às 19h","04094-050","","250","","","","","ativo"
+"Odontologia Rede Credenciada","Odonto Amap - Pinheiros","AMO Odonto","Odontologia Geral","34.567.890/0001-92","(11) 99999-3333","(11) 3333-3333","Seg a Sex 8h às 20h","05407-002","","500","","","","","ativo"
+"Imagem Diagnóstica Ltda","Centro de Imagem - Moema","AMO Médico","Radiologia","45.678.901/0001-93","(11) 99999-4444","(11) 3333-4444","Seg a Sex 6h às 22h","04083-001","","150","","","","","ativo"
+"Consultório Médico Integrado","Consultório Integrado - Jardins","AMAP Médico","Clínica Geral","56.789.012/0001-94","(11) 99999-5555","(11) 3333-5555","Seg a Sex 8h às 18h, Sáb 8h às 12h","01415-001","","1200","","","","","ativo"

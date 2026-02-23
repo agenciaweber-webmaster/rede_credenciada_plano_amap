@@ -1,0 +1,34 @@
+{
+    "name": "jajo/jsondb",
+    "description": "A PHP Class that reads JSON file as a database. Use for sample DBs",
+    "type": "library",
+    "license": "MIT",
+    "authors": [
+        {
+            "name": "Jajo",
+            "email": "me@donjajo.com"
+        }
+    ],
+    "autoload" : {
+        "psr-4" : {
+            "Jajo\\" : "src/"
+        },
+        "files" : [
+            "helpers/dataTypes.php",
+            "helpers/json.php"
+        ]
+    },
+    "require": {
+        "php": ">=7.3"
+    },
+    "require-dev": {
+        "symplify/easy-coding-standard": "dev-main",
+        "phpunit/phpunit": "^9.5",
+        "phpstan/phpstan": "^1.4"
+    },
+    "scripts": {
+        "check-cs": "vendor/bin/ecs check --ansi",
+        "fix-cs": "vendor/bin/ecs check --fix --ansi",
+        "phpstan": "vendor/bin/phpstan --ansi"
+    }
+}

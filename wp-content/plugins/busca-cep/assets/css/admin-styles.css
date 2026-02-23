@@ -1,0 +1,326 @@
+/* ==========================================================================
+   Busca CEP - Admin Styles
+   ========================================================================== */
+
+/* Mensagem informativa acima da tabela */
+.buscacep-info-message {
+    margin: 0 0 16px 0;
+    padding: 12px 16px;
+    background: #e7f3ff;
+    border-left: 4px solid #009879;
+    font-size: 0.95em;
+    line-height: 1.5;
+    color: #333;
+}
+
+/* Header */
+.up-header {
+    display: flex;
+    justify-content: space-evenly;
+}
+
+/* Tabela de Revendas */
+.table-revendas {
+    border-collapse: collapse;
+    margin: 2% auto;
+    font-size: 0.8em;
+    font-family: sans-serif;
+    width: 100%;
+    box-shadow: 0 0 20px rgb(0 0 0 / 15%);
+}
+
+.table-revendas thead tr {
+    background-color: #009879;
+    color: #ffffff;
+    text-align: left;
+    font-size: 0.8em;
+}
+
+.table-revendas th,
+.table-revendas td {
+    padding: 2vh 1vh;
+    text-align: center;
+}
+
+.table-revendas tbody tr {
+    border-bottom: 1px solid #dddddd;
+}
+
+.table-revendas tbody tr:nth-of-type(even) {
+    background-color: #f3f3f3;
+}
+
+.table-revendas tbody tr:last-of-type {
+    border-bottom: 1px solid #009879;
+}
+
+.table-revendas tbody tr.active-row:hover {
+    color: #009879;
+    cursor: pointer;
+    border-bottom: 1px solid #009879;
+}
+
+/* Botões */
+.btn-primary {
+    background-color: #009879;
+    border: 1px solid transparent;
+}
+
+.btn-revenda {
+    float: left;
+    border: 1px solid transparent;
+    text-align: center;
+    border-radius: 4px;
+    color: #fff;
+    margin: 2px;
+}
+
+.btn-submit {
+    margin: 0 auto;
+}
+
+.th-display {
+    display: flex;
+}
+
+/* Modais */
+.modal {
+    overflow-x: hidden;
+    overflow-y: auto;
+}
+
+.modal_message {
+    background-color: #f2dede;
+    border-color: #ebccd1;
+}
+
+#modal-message {
+    z-index: 2000;
+}
+
+.alert-danger {
+    border-color: transparent;
+}
+
+.modal-title {
+    text-align: center;
+}
+
+.modal-list-revendas {
+    width: 87%;
+    margin-top: 10%;
+    margin-left: auto;
+    margin-right: 1vh;
+}
+
+.modal-edit {
+    margin-right: auto;
+}
+
+/* Modal de confirmação */
+.modal-confirm .modal-body {
+    position: relative;
+    flex: 1 1 auto;
+    padding: 1rem;
+}
+
+.modal-confirm .modal-content {
+    padding: 20px;
+    border-radius: 5px;
+    border: none;
+    text-align: center;
+    font-size: 14px;
+}
+
+.modal-confirm .modal-footer {
+    border: none;
+    text-align: center;
+    border-radius: 5px;
+    font-size: 13px;
+    padding: 10px 15px 25px;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: center;
+}
+
+.modal-confirm h4 {
+    text-align: center;
+    font-size: 26px;
+    margin: 30px 0 -10px;
+}
+
+.w-100 {
+    width: 100% !important;
+}
+
+.modal-confirm .btn,
+.modal-confirm .btn:active {
+    color: #fff;
+    border-radius: 4px;
+    background: #60c7c1;
+    text-decoration: none;
+    transition: all 0.4s;
+    line-height: normal;
+    min-width: 120px;
+    border: none;
+    min-height: 40px;
+    margin: 0 5px;
+}
+
+.modal-confirm .btn-danger {
+    background: #f15e5e !important;
+}
+
+.modal-confirm .btn-danger:hover,
+.modal-confirm .btn-danger:focus {
+    background: #ee3535 !important;
+}
+
+.modal-confirm .btn-secondary {
+    background: #c1c1c1 !important;
+}
+
+.modal-confirm .btn-secondary:hover,
+.modal-confirm .btn-secondary:focus {
+    background: #a8a8a8 !important;
+}
+
+.btn-secondary:hover {
+    color: #fff;
+    background-color: #5a6268 !important;
+    border-color: #545b62 !important;
+}
+
+/* Pesquisa */
+.search-form {
+    background-image: url('searchicon.png');
+    background-position: 10px 10px;
+    background-repeat: no-repeat;
+    font-size: 16px;
+    padding: 0px 10px !important;
+    border: 1px solid #ddd !important;
+}
+
+/* Inputs */
+.input-control {
+    display: flex;
+}
+
+.head-modal {
+    display: flex;
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: flex-end;
+}
+
+/* Import/Export */
+.import {
+    display: none !important;
+}
+
+.export {
+    display: none !important;
+}
+
+.load-ajax {
+    display: block;
+    position: relative;
+    width: 15%;
+    margin: auto;
+    top: 27vh;
+}
+
+/* Barra de progresso */
+.progress {
+    height: 20px;
+    margin-bottom: 20px;
+    overflow: hidden;
+    background-color: #f5f5f5;
+    border-radius: 4px;
+    box-shadow: inset 0 1px 2px rgb(0 0 0 / 10%);
+}
+
+.progress-bar {
+    float: left;
+    width: 0;
+    height: 100%;
+    font-size: 12px;
+    line-height: 20px;
+    color: #fff;
+    text-align: center;
+    background-color: #337ab7;
+    box-shadow: inset 0 -1px 0 rgb(0 0 0 / 15%);
+    transition: width 0.6s ease;
+}
+
+.progress-bar-lines {
+    width: 100%;
+    position: absolute;
+    text-align: center;
+}
+
+.progress-bar.active,
+.progress.active .progress-bar {
+    animation: progress-bar-stripes 2s linear infinite;
+}
+
+.progress-bar-striped,
+.progress-striped .progress-bar {
+    background-image: linear-gradient(
+        45deg,
+        rgba(255, 255, 255, 0.15) 25%,
+        transparent 25%,
+        transparent 50%,
+        rgba(255, 255, 255, 0.15) 50%,
+        rgba(255, 255, 255, 0.15) 75%,
+        transparent 75%,
+        transparent
+    );
+    background-size: 40px 40px;
+}
+
+/* Configurações */
+.config-input-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    max-width: 600px;
+}
+
+.config-input-row input {
+    flex: 1;
+    min-width: 0;
+}
+
+.config-input-row #salve-config {
+    flex-shrink: 0;
+}
+
+.status {
+    display: flex;
+    text-align: center;
+    max-width: 100% !important;
+}
+
+/* Select do modal - mesma largura dos demais campos */
+#modal-resale select.form-control {
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+}
+
+#modal-resale select.form-control:invalid,
+#modal-resale select.form-control[data-invalid="true"] {
+    border-color: #e93b3b;
+}
+
+/* Remove spinners dos inputs numéricos */
+input[type='number']::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+}
+
+input[type='number'] {
+    -moz-appearance: textfield;
+    appearance: textfield;
+}
