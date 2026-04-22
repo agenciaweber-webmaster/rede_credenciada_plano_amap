@@ -12,6 +12,22 @@ class AdminConfig
         add_action('init', [$this, 'init']);
     }
 
+    /**
+     * Versão para cache-bust de asset (evita browser com JS/CSS antigo após deploy).
+     */
+    private function assetVersion(string $relativePath): string
+    {
+        $path = BUSCACEP_PLUGIN_DIR . $relativePath;
+        if (is_readable($path)) {
+            $mtime = filemtime($path);
+            if ($mtime !== false) {
+                return (string) $mtime;
+            }
+        }
+
+        return BUSCACEP_VERSION;
+    }
+
     public function init()
     {
         add_action('admin_menu', [$this, 'addMenu']);
@@ -41,11 +57,16 @@ class AdminConfig
      */
     public function resalesMapShortcode()
     {
-        wp_enqueue_style('buscacep-frontend', BUSCACEP_PLUGIN_URL . 'assets/css/frontend-styles.css', [], BUSCACEP_VERSION);
+        $verCss = $this->assetVersion('/assets/css/frontend-styles.css');
+        $verJs = $this->assetVersion('/assets/js/frontend-scripts.js');
+        wp_enqueue_style('buscacep-frontend', BUSCACEP_PLUGIN_URL . 'assets/css/frontend-styles.css', [], $verCss);
         wp_enqueue_script('buscacep-mask', 'https://cdn.jsdelivr.net/npm/jquery-mask-plugin@1.14.13/dist/jquery.mask.min.js', ['jquery'], BUSCACEP_VERSION, true);
-        wp_enqueue_script('buscacep-google-maps', 'https://maps.googleapis.com/maps/api/js?key=AIzaSyCnAtv-xji754g4WdkO-n01sIW3R64Ch5o&callback', [], BUSCACEP_VERSION, true);
-        wp_enqueue_script('buscacep-frontend', BUSCACEP_PLUGIN_URL . 'assets/js/frontend-scripts.js', ['jquery', 'buscacep-mask', 'buscacep-google-maps'], BUSCACEP_VERSION, true);
-        wp_localize_script('buscacep-frontend', 'buscaCepConfig', ['apiUrl' => esc_url(rest_url('resales/v1/json'))]);
+        wp_enqueue_script('buscacep-google-maps', 'https://maps.googleapis.com/maps/api/js?key=AIzaSyCnAtv-xji754g4WdkO-n01sIW3R64Ch5o', [], BUSCACEP_VERSION, true);
+        wp_enqueue_script('buscacep-frontend', BUSCACEP_PLUGIN_URL . 'assets/js/frontend-scripts.js', ['jquery', 'buscacep-mask', 'buscacep-google-maps'], $verJs, true);
+        wp_localize_script('buscacep-frontend', 'buscaCepConfig', [
+            'apiUrl'   => esc_url(rest_url('resales/v1/json')),
+            'mapDebug' => defined('WP_DEBUG') && WP_DEBUG,
+        ]);
 
         ob_start();
         include BUSCACEP_VIEW_DIR . '/map-display.php';
@@ -57,11 +78,14 @@ class AdminConfig
      */
     public function frontendEnqueue()
     {
+        $verCss = $this->assetVersion('/assets/css/frontend-styles.css');
+        $verJs = $this->assetVersion('/assets/js/frontend-scripts.js');
+
         wp_register_style(
             'buscacep-frontend',
             BUSCACEP_PLUGIN_URL . 'assets/css/frontend-styles.css',
             [],
-            BUSCACEP_VERSION
+            $verCss
         );
 
         wp_register_script(
@@ -82,7 +106,7 @@ class AdminConfig
 
         wp_register_script(
             'buscacep-google-maps',
-            'https://maps.googleapis.com/maps/api/js?key=AIzaSyCnAtv-xji754g4WdkO-n01sIW3R64Ch5o&callback',
+            'https://maps.googleapis.com/maps/api/js?key=AIzaSyCnAtv-xji754g4WdkO-n01sIW3R64Ch5o',
             [],
             BUSCACEP_VERSION,
             true
@@ -92,12 +116,13 @@ class AdminConfig
             'buscacep-frontend',
             BUSCACEP_PLUGIN_URL . 'assets/js/frontend-scripts.js',
             ['jquery', 'buscacep-mask', 'buscacep-google-maps'],
-            BUSCACEP_VERSION,
+            $verJs,
             true
         );
 
         wp_localize_script('buscacep-frontend', 'buscaCepConfig', [
-            'apiUrl' => esc_url(rest_url('resales/v1/json')),
+            'apiUrl'   => esc_url(rest_url('resales/v1/json')),
+            'mapDebug' => defined('WP_DEBUG') && WP_DEBUG,
         ]);
 
         if ($this->pageHasResalesMap()) {

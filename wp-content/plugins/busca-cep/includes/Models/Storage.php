@@ -2,6 +2,7 @@
 
 namespace BuscaCep\Models;
 
+use BuscaCep\Helpers\Helper;
 use Jajo\JSONDB;
 
 /**
@@ -12,13 +13,28 @@ class Storage
     private $json;
     private $db = 'resales.json';
     private $config = 'config.json';
-    private $last_id;
 
     public function __construct()
     {
         $storage_dir = BUSCACEP_COMPONENTS_DIR . '/storage';
         $this->json = new JSONDB($storage_dir);
-        $this->last_id = count($this->json->select('*')->from($this->db)->get());
+    }
+
+    /**
+     * Maior ID já usado nas revendas (nunca usar count(rows): após exclusões, reutiliza id existente e corrompe o JSON).
+     */
+    private function getMaxResaleId(): int
+    {
+        $rows = $this->json->select('*')->from($this->db)->get();
+        $max = 0;
+        foreach ($rows as $r) {
+            $id = (int) ($r['id'] ?? 0);
+            if ($id > $max) {
+                $max = $id;
+            }
+        }
+
+        return $max;
     }
 
     /**
@@ -26,16 +42,16 @@ class Storage
      */
     public function insert(array $data): array
     {
-        $id = $this->last_id;
+        $nextId = $this->getMaxResaleId() + 1;
 
         if (isset($data['resales'])) {
             foreach ($data['resales'] as $resale) {
-                $resale['id'] = $id++;
+                $resale['id'] = $nextId++;
                 $this->json->insert($this->db, $resale);
             }
             $query = true;
         } else {
-            $data['id'] = $id++;
+            $data['id'] = $nextId;
             $query = $this->json->insert($this->db, $data);
         }
 
@@ -121,6 +137,9 @@ class Storage
         return $query->get();
     }
 
+    /**
+     * Verifica duplicata: lat, lng, especialidade, plano e CNPJ/CRM (normalizados).
+     */
     public function validate(array $data): object
     {
         if (!isset($data['lat']) || !isset($data['lng'])) {
@@ -128,14 +147,19 @@ class Storage
         }
         $lat = round((float) $data['lat'], 5);
         $lng = round((float) $data['lng'], 5);
-        $especialidade = trim((string) ($data['especialidade'] ?? ''));
+        $especialidade = mb_strtolower(trim((string) ($data['especialidade'] ?? '')));
+        $plano = Helper::normalizePlanoForDuplicate($data['plano'] ?? '');
+        $cnpjKey = Helper::normalizeCnpjCrmForDuplicate($data['cnpj'] ?? '');
 
         $rows = $this->json->select('*')->from($this->db)->get();
         foreach ($rows as $r) {
             $rLat = round((float) ($r['lat'] ?? 0), 5);
             $rLng = round((float) ($r['lng'] ?? 0), 5);
-            $rEsp = trim((string) ($r['especialidade'] ?? ''));
-            if ($rLat === $lat && $rLng === $lng && $rEsp === $especialidade) {
+            $rEsp = mb_strtolower(trim((string) ($r['especialidade'] ?? '')));
+            $rPlano = Helper::normalizePlanoForDuplicate($r['plano'] ?? '');
+            $rCnpj = Helper::normalizeCnpjCrmForDuplicate($r['cnpj'] ?? '');
+            if ($rLat === $lat && $rLng === $lng && $rEsp === $especialidade
+                && $rPlano === $plano && $rCnpj === $cnpjKey) {
                 $r['quantity'] = 1;
                 return (object) $r;
             }

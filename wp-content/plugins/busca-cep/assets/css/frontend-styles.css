@@ -11,10 +11,20 @@
 }
 
 #busca-cep-rede-credenciada .busca-lojas-titulo {
-    margin: 0 0 20px 0;
+    margin: 0 0 8px 0;
     font-size: 1.4rem;
     font-weight: 600;
     color: #333;
+}
+
+#busca-cep-rede-credenciada .busca-lojas-subtitulo {
+    margin: 0 0 16px 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    font-size: 0.875rem;
+    font-weight: 400;
+    line-height: 1.45;
+    color: #555;
+    max-width: 72ch;
 }
 
 /* Corpo - duas colunas 50%/50%, altura fixa compacta */
@@ -36,11 +46,95 @@
     padding-right: 16px;
 }
 
-#busca-cep-rede-credenciada .busca-filtros-row {
+/* Linha 1: somente CEP + buscar */
+#busca-cep-rede-credenciada .busca-filtros-busca-linha {
+    margin-bottom: 6px;
+}
+
+#busca-cep-rede-credenciada .busca-filtros-busca-linha .busca-mapa {
+    width: 100%;
+    flex: 1 1 100%;
+    max-width: 100%;
+}
+
+/* Linha 2: filtros (preenchem o espaço) + imprimir (largura fixa) */
+#busca-cep-rede-credenciada .busca-filtros-extra-linha {
     display: flex;
     align-items: stretch;
-    gap: 8px;
+    flex-wrap: nowrap;
+    justify-content: flex-start;
+    column-gap: 4px;
+    row-gap: 6px;
     margin-bottom: 8px;
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+}
+
+/* Fora do fluxo até haver filtro visível */
+#busca-cep-rede-credenciada .busca-filtros-selects {
+    display: none;
+    flex-direction: row;
+    flex-wrap: nowrap;
+    column-gap: 4px;
+    align-items: stretch;
+    flex: 1 1 0%;
+    min-width: 0;
+    max-width: 100%;
+}
+
+#busca-cep-rede-credenciada .busca-filtros-selects.is-visible {
+    display: flex;
+}
+
+#busca-cep-rede-credenciada .busca-imprimir-inline-wrap {
+    display: none;
+    flex: 0 0 auto;
+    align-items: center;
+}
+
+#busca-cep-rede-credenciada .busca-imprimir-inline-wrap.is-visible {
+    display: flex;
+    align-items: center;
+}
+
+/* Só o botão visível: ocupa a linha e encosta o botão à direita (largura fixa) */
+#busca-cep-rede-credenciada .busca-filtros-extra-linha:not(:has(.busca-filtros-selects.is-visible)) .busca-imprimir-inline-wrap.is-visible {
+    flex: 1 1 auto;
+    justify-content: flex-end;
+    min-width: 0;
+}
+
+#busca-cep-rede-credenciada .btn-busca-imprimir {
+    box-sizing: border-box;
+    width: 168px;
+    min-width: 168px;
+    max-width: 168px;
+    padding: 0 8px;
+    height: 40px;
+    min-height: 40px;
+    font-size: 0.80rem;
+    line-height: 1.2;
+    border: 1px solid #c71585;
+    background: #fff;
+    color: #c71585;
+    border-radius: 4px;
+    cursor: pointer;
+    font-family: inherit;
+    white-space: nowrap;
+    text-align: center;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+#busca-cep-rede-credenciada .btn-busca-imprimir:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
+#busca-cep-rede-credenciada .btn-busca-imprimir:not(:disabled):hover {
+    background: #c71585;
+    color: #fff;
 }
 
 #busca-cep-rede-credenciada .busca-mapa {
@@ -50,6 +144,7 @@
     flex: 1;
     min-width: 0;
     overflow: hidden;
+    cursor: default;
 }
 
 #busca-cep-rede-credenciada .busca-mapa:focus-within {
@@ -68,6 +163,7 @@
     border-radius: 0;
     margin-bottom: 0px;
     background-color: #f5f5f5;
+    cursor: text;
 }
 
 #busca-cep-rede-credenciada #buscacep-input:focus {
@@ -109,12 +205,20 @@
     background-color: #a0126a;
 }
 
-#busca-cep-rede-credenciada .filtro-especialidade-wrap {
+#busca-cep-rede-credenciada .filtro-select-wrap {
     flex-shrink: 0;
-    width: 220px;
+    width: 200px;
 }
 
-#busca-cep-rede-credenciada .filtro-especialidade-wrap select {
+/* Na linha de filtros: largura fluida, divide o espaço entre os selects */
+#busca-cep-rede-credenciada .busca-filtros-selects .filtro-select-wrap {
+    flex: 1 1 0%;
+    min-width: 0;
+    width: auto;
+    max-width: none;
+}
+
+#busca-cep-rede-credenciada .filtro-select-wrap select {
     padding: 8px 12px;
     border: 1px solid #ddd;
     border-radius: 4px;
@@ -122,9 +226,10 @@
     height: 40px;
     min-height: 40px;
     font-size: 0.9rem;
+    cursor: pointer;
 }
 
-#busca-cep-rede-credenciada .filtro-especialidade-wrap select:focus {
+#busca-cep-rede-credenciada .filtro-select-wrap select:focus {
     outline: none;
     box-shadow: none;
     border-color: #ddd;
@@ -245,6 +350,32 @@
     text-transform: uppercase;
 }
 
+#busca-cep-rede-credenciada .info-lojas .info-telefone {
+    margin: 4px 0 0 0;
+    font-size: 0.8rem;
+    color: #555;
+    line-height: 1.3;
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0 4px;
+}
+
+#busca-cep-rede-credenciada .info-lojas .info-telefone .phone-icon-svg--lista {
+    display: inline-block;
+    vertical-align: middle;
+    flex-shrink: 0;
+    color: #555;
+}
+
+#busca-cep-rede-credenciada .lojas-proximas.ativo .info-lojas .info-telefone {
+    color: rgba(255, 255, 255, 0.95) !important;
+}
+
+#busca-cep-rede-credenciada .lojas-proximas.ativo .info-lojas .info-telefone .phone-icon-svg--lista {
+    color: rgba(255, 255, 255, 0.95);
+}
+
 #busca-cep-rede-credenciada .info-lojas .distancia {
     position: absolute;
     right: 10px;
@@ -321,14 +452,139 @@
 /* Mapa */
 #busca-cep-rede-credenciada .busca-lojas-mapa {
     flex: 1;
-    min-height: 120px;
+    min-height: 180px;
     position: relative;
 }
 
 #busca-cep-rede-credenciada #revenderores_maps {
     width: 100%;
     height: 100%;
-    min-height: 120px;
+    min-height: 180px;
+}
+
+/* Modal impressão (classe global: pode ser reparentado ao body para ficar acima do rodapé do tema) */
+.busca-imprimir-modal {
+    display: none;
+    position: fixed;
+    inset: 0;
+    z-index: 2147483646;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+    box-sizing: border-box;
+    isolation: isolate;
+}
+
+.busca-imprimir-modal.is-visible {
+    display: flex;
+}
+
+.busca-imprimir-modal .busca-imprimir-backdrop {
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.45);
+    cursor: pointer;
+    z-index: 0;
+}
+
+.busca-imprimir-modal .busca-imprimir-dialog {
+    position: relative;
+    z-index: 1;
+    background: #fff;
+    max-width: 440px;
+    width: 100%;
+    max-height: 90vh;
+    overflow: auto;
+    border-radius: 8px;
+    padding: 20px 22px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+.busca-imprimir-modal .busca-imprimir-titulo {
+    margin: 0 0 8px 0;
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: #333;
+}
+
+.busca-imprimir-modal .busca-imprimir-ajuda {
+    margin: 0 0 12px 0;
+    font-size: 0.88rem;
+    line-height: 1.45;
+    color: #555;
+}
+
+.busca-imprimir-modal .busca-imprimir-toolbar {
+    margin-bottom: 6px;
+}
+
+.busca-imprimir-modal .busca-imprimir-todas-label {
+    font-size: 0.9rem;
+    cursor: pointer;
+    user-select: none;
+}
+
+.busca-imprimir-modal .busca-imprimir-checkboxes {
+    max-height: 240px;
+    overflow-y: auto;
+    border: 1px solid #e0e0e0;
+    border-radius: 4px;
+    padding: 6px 8px;
+    margin-bottom: 14px;
+    background: #fafafa;
+}
+
+.busca-imprimir-modal .busca-imprimir-item {
+    display: block;
+    padding: 8px 6px;
+    font-size: 0.88rem;
+    cursor: pointer;
+    border-bottom: 1px solid #eee;
+}
+
+.busca-imprimir-modal .busca-imprimir-item:last-child {
+    border-bottom: none;
+}
+
+.busca-imprimir-modal .busca-imprimir-item input {
+    margin-right: 8px;
+    vertical-align: middle;
+    cursor: pointer;
+}
+
+.busca-imprimir-modal .busca-imprimir-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.busca-imprimir-modal .btn-imprimir-cancelar,
+.busca-imprimir-modal .btn-imprimir-confirmar {
+    padding: 8px 16px;
+    font-size: 0.9rem;
+    border-radius: 4px;
+    cursor: pointer;
+    font-family: inherit;
+    border: 1px solid #ccc;
+    background: #f5f5f5;
+    color: #333;
+}
+
+.busca-imprimir-modal .btn-imprimir-confirmar {
+    border-color: #c71585;
+    background: #c71585;
+    color: #fff;
+}
+
+.busca-imprimir-modal .btn-imprimir-cancelar:hover {
+    background: #eaeaea;
+}
+
+.busca-imprimir-modal .btn-imprimir-confirmar:hover {
+    background: #a0126a;
+    border-color: #a0126a;
 }
 
 /* Responsivo */
@@ -371,12 +627,49 @@
 }
 
 @media (max-width: 600px) {
-    #busca-cep-rede-credenciada .busca-filtros-row {
+    #busca-cep-rede-credenciada .busca-filtros-extra-linha {
         flex-direction: column;
+        align-items: stretch;
+        flex-wrap: wrap;
+        column-gap: 0;
+        row-gap: 6px;
     }
 
-    #busca-cep-rede-credenciada .filtro-especialidade-wrap {
+    #busca-cep-rede-credenciada .busca-filtros-selects.is-visible {
+        flex: none;
+        flex-wrap: wrap;
         width: 100%;
+        row-gap: 5px;
+    }
+
+    #busca-cep-rede-credenciada .busca-filtros-selects .filtro-select-wrap {
+        flex: 1 1 100%;
+        min-width: 0;
+        width: 100%;
+    }
+
+    #busca-cep-rede-credenciada .filtro-select-wrap {
+        width: 100%;
+    }
+
+    #busca-cep-rede-credenciada .busca-filtros-selects {
+        width: 100%;
+    }
+
+    #busca-cep-rede-credenciada .busca-imprimir-inline-wrap.is-visible {
+        width: 100%;
+        flex: none;
+        justify-content: stretch;
+    }
+
+    #busca-cep-rede-credenciada .busca-filtros-extra-linha:not(:has(.busca-filtros-selects.is-visible)) .busca-imprimir-inline-wrap.is-visible {
+        justify-content: stretch;
+    }
+
+    #busca-cep-rede-credenciada .btn-busca-imprimir {
+        width: 100%;
+        min-width: 0;
+        max-width: none;
     }
 
     #busca-cep-rede-credenciada .busca-mapa {

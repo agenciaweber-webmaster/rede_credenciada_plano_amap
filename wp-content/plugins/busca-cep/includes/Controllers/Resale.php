@@ -21,7 +21,7 @@ class Resale
         $this->helper = new Helper();
         $this->storage = new Storage();
 
-        if (session_status() !== PHP_SESSION_ACTIVE) {
+        if (session_status() !== PHP_SESSION_ACTIVE && !headers_sent()) {
             session_start();
         }
     }
@@ -171,18 +171,26 @@ class Resale
             return new WP_REST_Response(['success' => false, 'error' => __('Formato incompatível. Use CSV.', 'busca-cep')], 400);
         }
 
-        $content = @file_get_contents($files['import']['tmp_name']);
-        if ($content === false) {
+        $handle = @fopen($files['import']['tmp_name'], 'rb');
+        if ($handle === false) {
             return new WP_REST_Response(['success' => false, 'error' => __('Não foi possível ler o arquivo.', 'busca-cep')], 400);
         }
-        $content = preg_replace('/^\xEF\xBB\xBF/', '', $content);
-        $lines = preg_split('/\r\n|\r|\n/', trim($content));
-        if (empty($lines)) {
-            return new WP_REST_Response(['success' => false, 'error' => 'Arquivo vazio.'], 400);
+
+        $bom = fread($handle, 3);
+        if ($bom !== "\xEF\xBB\xBF") {
+            rewind($handle);
+        }
+
+        $headerLine = fgetcsv($handle, 0, ',', '"');
+        if ($headerLine === false || $headerLine === [null] || empty(array_filter($headerLine, function ($v) {
+            return $v !== null && trim((string) $v) !== '';
+        }))) {
+            fclose($handle);
+            return new WP_REST_Response(['success' => false, 'error' => 'Arquivo vazio ou sem cabeçalho.'], 400);
         }
 
         $header_values = [];
-        foreach (str_getcsv($lines[0], ',', '"') as $hv) {
+        foreach ($headerLine as $hv) {
             $header_values[] = strtolower(trim(preg_replace('/\s+/', '_', $this->helper->formatString($hv ?? ''))));
         }
 
@@ -203,9 +211,17 @@ class Resale
         $ignorados = 0;
         $erro_geocoding = null;
 
-        for ($i = 1; $i < count($lines); $i++) {
-            $cells = str_getcsv($lines[$i], ',', '"');
-            if (empty(array_filter($cells))) continue;
+        while (($cells = fgetcsv($handle, 0, ',', '"')) !== false) {
+            $temConteudo = false;
+            foreach ($cells as $c) {
+                if ($c !== null && trim((string) $c) !== '') {
+                    $temConteudo = true;
+                    break;
+                }
+            }
+            if (!$temConteudo) {
+                continue;
+            }
 
             $row = @array_combine($header_values, array_pad(array_slice($cells, 0, count($header_values)), count($header_values), ''));
             if ($row === false) {
@@ -231,7 +247,7 @@ class Resale
                 continue;
             }
 
-            $result = $this->getGeo($cep, $numero);
+            $result = $this->getGeo($cep, $numero, $this->buildGeocodeAddressLine($row, $numero));
             if (isset($result->error) || empty($result->latitude ?? null) || empty($result->longitude ?? null)) {
                 $erros++;
                 if ($erro_geocoding === null && isset($result->error)) {
@@ -248,8 +264,10 @@ class Resale
 
             $lat = round((float) ($resale['lat'] ?? 0), 5);
             $lng = round((float) ($resale['lng'] ?? 0), 5);
-            $esp = trim((string) ($resale['especialidade'] ?? ''));
-            $batchKey = $lat . '|' . $lng . '|' . $esp;
+            $esp = mb_strtolower(trim((string) ($resale['especialidade'] ?? '')));
+            $planoKey = Helper::normalizePlanoForDuplicate($resale['plano'] ?? '');
+            $cnpjKey = Helper::normalizeCnpjCrmForDuplicate($resale['cnpj'] ?? '');
+            $batchKey = $lat . '|' . $lng . '|' . $esp . '|' . $planoKey . '|' . $cnpjKey;
             if (isset($batchKeys[$batchKey])) {
                 $ignorados++;
                 continue;
@@ -257,6 +275,8 @@ class Resale
             $batchKeys[$batchKey] = true;
             $toInsert[] = $resale;
         }
+
+        fclose($handle);
 
         $save = ['resales' => []];
         $update = ['resales' => []];
@@ -346,9 +366,44 @@ class Resale
     }
 
     /**
-     * Obtém coordenadas geográficas de um CEP usando Google Geocoding API.
+     * Monta linha de endereço para geocode (importação) quando o CSV traz logradouro completo.
      */
-    public function getGeo($cep, $numero = null)
+    private function buildGeocodeAddressLine(array $row, string $numero): ?string
+    {
+        $rua = trim((string) ($row['rua'] ?? ''));
+        $bairro = trim((string) ($row['bairro'] ?? ''));
+        $municipio = trim((string) ($row['municipio'] ?? ''));
+        $estado = trim((string) ($row['estado'] ?? ''));
+        if ($rua === '' || $municipio === '' || $estado === '' || trim($numero) === '') {
+            return null;
+        }
+        $parts = [$rua, $numero];
+        if ($bairro !== '') {
+            $parts[] = $bairro;
+        }
+        $parts[] = $municipio;
+        $parts[] = $estado;
+        $parts[] = 'Brazil';
+
+        return implode(', ', $parts);
+    }
+
+    /**
+     * Texto vindo do formulário ou CSV — nunca preencher com retorno do geocode.
+     */
+    private function userProvidedText(?string $v): ?string
+    {
+        $t = trim((string) ($v ?? ''));
+
+        return $t !== '' ? $t : null;
+    }
+
+    /**
+     * Obtém coordenadas geográficas de um CEP usando Google Geocoding API.
+     *
+     * @param string|null $structuredAddress Endereço completo (ex.: import CSV) — tentativa antes do CEP isolado.
+     */
+    public function getGeo($cep, $numero = null, ?string $structuredAddress = null)
     {
         $row = $this->storage->getConfig('*', ['id' => 1]);
         $key = (!empty($row) && isset($row[0]['token'])) ? $row[0]['token'] : '';
@@ -360,6 +415,21 @@ class Resale
         $cepDigits = preg_replace('/[^\d]/', '', $cep);
         if (strlen($cepDigits) < 8) {
             $cepDigits = str_pad($cepDigits, 8, '0', STR_PAD_LEFT);
+        }
+
+        if ($structuredAddress !== null && trim($structuredAddress) !== '') {
+            $query = http_build_query(['address' => trim($structuredAddress), 'key' => $key, 'region' => 'br']);
+            $resAddr = $this->helper->send('https://maps.googleapis.com/maps/api/geocode/json?' . $query);
+            if (($resAddr->status ?? '') === 'OK' && !empty($resAddr->results[0] ?? null)) {
+                $parsedAddr = $this->parseGeoResult($resAddr, $cepDigits);
+                if (empty($parsedAddr->error ?? null)) {
+                    $latA = isset($parsedAddr->latitude) ? (float) $parsedAddr->latitude : null;
+                    $lngA = isset($parsedAddr->longitude) ? (float) $parsedAddr->longitude : null;
+                    if ($latA !== null && $lngA !== null && !Helper::isPontoCentroideBrasil($latA, $lngA)) {
+                        return $parsedAddr;
+                    }
+                }
+            }
         }
 
         $result = null;
@@ -391,7 +461,39 @@ class Resale
         if ($result === null || !is_object($result)) {
             return (object) ['error' => 'Resposta inválida da API de geolocalização.'];
         }
-        return $this->parseGeoResult($result);
+
+        $parsed = $this->parseGeoResult($result, $cepDigits);
+        if (!empty($parsed->error ?? null)) {
+            return $parsed;
+        }
+
+        $lat = isset($parsed->latitude) ? (float) $parsed->latitude : null;
+        $lng = isset($parsed->longitude) ? (float) $parsed->longitude : null;
+        if ($lat !== null && $lng !== null && Helper::isPontoCentroideBrasil($lat, $lng)) {
+            $cep8n = Helper::normalizarCep8Digitos($cepDigits);
+            $ufFaixa = Helper::ufFromCepDigits8($cep8n);
+            $capital = Helper::capitalPorUf($ufFaixa);
+            if ($capital !== '') {
+                $cepFmt = strlen($cepDigits) >= 8
+                    ? substr($cepDigits, 0, 5) . '-' . substr($cepDigits, 5)
+                    : $cepDigits;
+                $addressRetry = "{$cepFmt}, {$capital}, {$ufFaixa}, Brazil";
+                $qRetry = http_build_query(['address' => $addressRetry, 'key' => $key, 'region' => 'br']);
+                $rRetry = $this->helper->send('https://maps.googleapis.com/maps/api/geocode/json?' . $qRetry);
+                if (($rRetry->status ?? '') === 'OK' && !empty($rRetry->results[0])) {
+                    $parsed2 = $this->parseGeoResult($rRetry, $cepDigits);
+                    if (empty($parsed2->error ?? null)) {
+                        $lat2 = (float) ($parsed2->latitude ?? 0);
+                        $lng2 = (float) ($parsed2->longitude ?? 0);
+                        if (!Helper::isPontoCentroideBrasil($lat2, $lng2)) {
+                            return $parsed2;
+                        }
+                    }
+                }
+            }
+        }
+
+        return $parsed;
     }
 
     /**
@@ -420,12 +522,12 @@ class Resale
             'horario'       => $param['horario'] ?? null,
             'telefone'      => $param['telefone'] ?? null,
             'cep'           => $cep,
-            'rua'           => $result->rua ?? null,
+            'rua'           => $this->userProvidedText($param['rua'] ?? null),
             'numero'        => $param['numero'] ?? null,
-            'bairro'        => $result->bairro ?? null,
-            'municipio'     => $result->municipio ?? null,
-            'estado'        => $result->estado ?? null,
-            'pais'          => $result->pais ?? null,
+            'bairro'        => $this->userProvidedText($param['bairro'] ?? null),
+            'municipio'     => $this->userProvidedText($param['municipio'] ?? null),
+            'estado'        => $this->userProvidedText($param['estado'] ?? null),
+            'pais'          => $this->userProvidedText($param['pais'] ?? null),
             'lat'           => $result->latitude ?? null,
             'lng'           => $result->longitude ?? null,
             'status'        => $param['status'] ?? 'ativo',
@@ -436,6 +538,7 @@ class Resale
 
     /**
      * Monta dados de revenda para importação.
+     * Geocode alimenta somente lat/lng; endereço e demais colunas vêm exclusivamente da planilha.
      */
     private function buildImportResaleData(array $resale, object $result, string $cep, ?string $token): array
     {
@@ -448,13 +551,13 @@ class Resale
             'whatsapp'      => $resale['whatsapp'] ?? null,
             'horario'       => $resale['horario'] ?? null,
             'telefone'      => $resale['telefone'] ?? null,
-            'cep'           => $result->cep ?? $cep,
+            'cep'           => $cep,
             'numero'        => $resale['numero'],
-            'rua'           => $result->rua ?? ($resale['rua'] ?? null),
-            'bairro'        => trim($result->bairro ?? $resale['bairro'] ?? '') ?: null,
-            'municipio'     => trim($result->municipio ?? $resale['municipio'] ?? '') ?: null,
-            'estado'        => trim($result->estado ?? $resale['estado'] ?? '') ?: null,
-            'pais'          => trim($result->pais ?? $resale['pais'] ?? '') ?: null,
+            'rua'           => $this->userProvidedText($resale['rua'] ?? null),
+            'bairro'        => $this->userProvidedText($resale['bairro'] ?? null),
+            'municipio'     => $this->userProvidedText($resale['municipio'] ?? null),
+            'estado'        => $this->userProvidedText($resale['estado'] ?? null),
+            'pais'          => $this->userProvidedText($resale['pais'] ?? null),
             'lat'       => round($result->latitude, 7),
             'lng'       => round($result->longitude, 7),
             'status'    => $resale['status'] ?? 'ativo',
@@ -464,9 +567,97 @@ class Resale
     }
 
     /**
-     * Processa resposta da API de geocoding do Google.
+     * Escolhe o resultado do Geocode mais compatível com o CEP (vários resultados são comuns em CEPs genéricos como 40000-000).
      */
-    private function parseGeoResult(object $result): object
+    private function pickBestGeocodeResult(array $results, string $expectedUf, string $cepDigitsNorm): ?object
+    {
+        if ($results === [] || !isset($results[0])) {
+            return null;
+        }
+
+        $cep8 = Helper::normalizarCep8Digitos($cepDigitsNorm);
+        $wantUf = strtoupper($expectedUf);
+        $cepDigitsOnly = preg_replace('/\D/', '', $cep8);
+
+        if ($wantUf !== '') {
+            foreach ($results as $r) {
+                $uf = strtoupper($this->extractUfFromAddressComponents($r->address_components ?? []));
+                if ($uf !== $wantUf) {
+                    continue;
+                }
+                $pc = $this->extractPostalCodeDigits($r->address_components ?? []);
+                if ($pc !== '' && $this->postalMatchesCepDigits($pc, $cepDigitsOnly)) {
+                    return $r;
+                }
+            }
+            foreach ($results as $r) {
+                $uf = strtoupper($this->extractUfFromAddressComponents($r->address_components ?? []));
+                if ($uf === $wantUf) {
+                    return $r;
+                }
+            }
+        }
+
+        foreach ($results as $r) {
+            $pc = $this->extractPostalCodeDigits($r->address_components ?? []);
+            if ($pc !== '' && $this->postalMatchesCepDigits($pc, $cepDigitsOnly)) {
+                return $r;
+            }
+        }
+
+        return $results[0];
+    }
+
+    private function extractUfFromAddressComponents(array $components): string
+    {
+        foreach ($components as $component) {
+            foreach ($component->types ?? [] as $type) {
+                if ($type === 'administrative_area_level_1') {
+                    return trim((string) ($component->short_name ?? ''));
+                }
+            }
+        }
+
+        return '';
+    }
+
+    private function extractPostalCodeDigits(array $components): string
+    {
+        foreach ($components as $component) {
+            foreach ($component->types ?? [] as $type) {
+                if ($type === 'postal_code') {
+                    return preg_replace('/\D/', '', (string) ($component->short_name ?? ''));
+                }
+            }
+        }
+
+        return '';
+    }
+
+    private function postalMatchesCepDigits(string $postalDigits, string $cepDigitsOnly): bool
+    {
+        if ($cepDigitsOnly === '' || strlen($cepDigitsOnly) < 8) {
+            return false;
+        }
+        if ($postalDigits === $cepDigitsOnly) {
+            return true;
+        }
+        if (strlen($postalDigits) >= 5 && strpos($cepDigitsOnly, $postalDigits) === 0) {
+            return true;
+        }
+        if (strlen($cepDigitsOnly) >= 5 && strpos($postalDigits, substr($cepDigitsOnly, 0, 5)) === 0) {
+            return true;
+        }
+
+        return false;
+    }
+
+    /**
+     * Processa resposta da API de geocoding do Google.
+     *
+     * @param string $cepDigits 8 dígitos do CEP (só números) para escolher o resultado correto entre vários.
+     */
+    private function parseGeoResult(object $result, string $cepDigits = ''): object
     {
         $json = [];
 
@@ -490,10 +681,38 @@ class Resale
             return (object) $json;
         }
 
-        $components = $result->results[0]->address_components ?? [];
+        $results = $result->results;
+        if (!is_array($results)) {
+            $json['error'] = 'Erro na geolocalização, ponto não válido';
+            return (object) $json;
+        }
+
+        $cep8 = Helper::normalizarCep8Digitos($cepDigits);
+        $expectedUf = Helper::ufFromCepDigits8($cep8);
+        $best = $this->pickBestGeocodeResult($results, $expectedUf, $cepDigits);
+
+        if ($best === null) {
+            $json['error'] = 'Erro na geolocalização, ponto não válido';
+            return (object) $json;
+        }
+
+        if (defined('WP_DEBUG') && WP_DEBUG) {
+            $loc = $best->geometry->location ?? null;
+            error_log(sprintf(
+                '[busca-cep] geocode CEP_digits=%s esperado_UF=%s escolhido_UF=%s lat=%s lng=%s n_resultados=%d',
+                $cep8,
+                $expectedUf,
+                $this->extractUfFromAddressComponents($best->address_components ?? []),
+                $loc ? (string) $loc->lat : 'n/a',
+                $loc ? (string) $loc->lng : 'n/a',
+                count($results)
+            ));
+        }
+
+        $components = $best->address_components ?? [];
 
         foreach ($components as $component) {
-            foreach ($component->types as $type) {
+            foreach ($component->types ?? [] as $type) {
                 switch ($type) {
                     case 'postal_code':
                         $json['cep'] = $component->short_name;
@@ -517,7 +736,7 @@ class Resale
             }
         }
 
-        $location = $result->results[0]->geometry->location ?? null;
+        $location = $best->geometry->location ?? null;
 
         if ($location) {
             $json['latitude'] = $location->lat;
