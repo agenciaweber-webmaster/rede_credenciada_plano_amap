@@ -12,6 +12,8 @@ use BuscaCep\Models\Storage;
  */
 class Consulta
 {
+    private const RAIO_BUSCA_KM = 30;
+
     private $storage;
     private $resale;
 
@@ -22,7 +24,7 @@ class Consulta
     }
 
     /**
-     * Busca revendas próximas a um CEP (raio de 5km).
+     * Busca revendas próximas a um CEP (raio de 30 km).
      * Aceita filtro opcional por especialidade.
      */
     public function resalesPoint($request)
@@ -422,7 +424,7 @@ class Consulta
     }
 
     /**
-     * Busca revendas: raio de 5 km em torno do ponto do CEP; se o CEP cadastrado (8 dígitos) for
+     * Busca revendas: raio de 30 km em torno do ponto do CEP; se o CEP cadastrado (8 dígitos) for
      * o mesmo da busca, inclui sempre (CEPs genéricos como 40000-000 geocodificam longe do endereço real).
      */
     private function findNearbyResales(array $data)
@@ -464,7 +466,7 @@ class Consulta
 
             $distance = $this->distance($searchLat, $searchLng, $latR, $lngR);
 
-            if (!$cepIgualBusca && $distance > 5) {
+            if (!$cepIgualBusca && $distance > self::RAIO_BUSCA_KM) {
                 continue;
             }
 

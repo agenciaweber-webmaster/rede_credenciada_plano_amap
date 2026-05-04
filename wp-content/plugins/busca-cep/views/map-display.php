@@ -1,6 +1,6 @@
 <?php if (!defined('ABSPATH')) exit; ?>
 <div class="busca-lojas-container">
-    <h2 class="busca-lojas-titulo"><?php _e('Busque os planos mais próximos', 'busca-cep'); ?></h2>
+    <h2 class="busca-lojas-titulo"><?php _e('Busque os prestadores mais próximos', 'busca-cep'); ?></h2>
     <p class="busca-lojas-subtitulo"><?php _e('Encontre atendimento agora: digite o seu CEP no campo abaixo para localizar clínicas, hospitais e laboratórios mais próximos de você.', 'busca-cep'); ?></p>
 
     <div class="busca-lojas-body">
