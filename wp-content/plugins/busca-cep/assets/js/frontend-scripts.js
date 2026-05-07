@@ -497,7 +497,7 @@
                 renderizarPerfil(resales[0]);
             }
         } else {
-            var msgEmpty = '<div class="busca-sem-resultado">Nenhum plano encontrado próximo a este CEP.</div>';
+            var msgEmpty = '<div class="busca-sem-resultado">Nenhum prestador encontrado próximo a este CEP.</div>';
             $('.scroll-lojas').html(msgEmpty);
             renderizarPerfil(null);
         }
