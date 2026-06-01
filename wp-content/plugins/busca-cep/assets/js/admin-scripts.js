@@ -236,10 +236,100 @@
         });
     });
 
-    // Importar arquivo
+    // Importar arquivo (em lotes para evitar timeout do servidor)
     $('#import-csv').on('click', function () {
         $('#import').click();
     });
+
+    function updateImportProgress(processed, total) {
+        $('#process_data').text(processed);
+        $('#total_data').text(total);
+        var pct = total > 0 ? Math.min(100, Math.round((processed / total) * 100)) : 0;
+        $('.progress-bar').css('width', pct + '%').attr('aria-valuenow', pct);
+    }
+
+    function finishImportUi(success, message) {
+        $('#import-csv').prop('disabled', false);
+        var alertClass = success ? 'alert-success' : 'alert-danger';
+        $('.progress-bar-messages').html('<div class="alert ' + alertClass + '">' + message + '</div>');
+        $('.import-form')[0].reset();
+        if (success) {
+            util.listAll();
+        }
+        setTimeout(function () { $('#process').css('display', 'none'); }, success ? 3000 : 8000);
+    }
+
+    function runImportBatch(importId, total) {
+        $.ajax({
+            url: baseUrl + '/upload_file/process',
+            type: 'POST',
+            contentType: 'application/json',
+            dataType: 'json',
+            data: JSON.stringify({ import_id: importId }),
+            beforeSend: function (xhr) {
+                if (typeof buscaCepAdmin !== 'undefined' && buscaCepAdmin.nonce) {
+                    xhr.setRequestHeader('X-WP-Nonce', buscaCepAdmin.nonce);
+                }
+            },
+            success: function (data) {
+                if (!data || data.success !== true) {
+                    finishImportUi(false, (data && (data.error || data.message)) || 'Erro ao processar lote da importação.');
+                    return;
+                }
+
+                updateImportProgress(data.processed || 0, total);
+                var parts = [];
+                if (data.total_saved > 0) {
+                    parts.push(data.total_saved + ' gravado(s)');
+                }
+                if (data.unchanged > 0) {
+                    parts.push(data.unchanged + ' sem alteração');
+                }
+                if (data.geo_reused > 0) {
+                    parts.push(data.geo_reused + ' coords reutilizadas');
+                }
+                if (data.geo_api_calls > 0) {
+                    parts.push(data.geo_api_calls + ' API Google');
+                }
+                if (parts.length > 0) {
+                    $('.progress-bar-messages').html(
+                        '<div class="alert alert-info">Importando ' + data.processed + ' de ' + total +
+                        ' — ' + parts.join(', ') + '...</div>'
+                    );
+                }
+
+                if (!data.finished) {
+                    runImportBatch(importId, total);
+                    return;
+                }
+
+                if (data.import_success) {
+                    var msg = data.msg || ('Importação concluída. ' + (data.total_saved || 0) + ' registro(s) processado(s).');
+                    if (data.erros > 0) {
+                        msg += ' ' + data.erros + ' linha(s) com erro.';
+                    }
+                    finishImportUi(true, msg);
+                } else {
+                    finishImportUi(false, data.error || 'Nenhum registro foi importado.');
+                }
+            },
+            error: function (xhr) {
+                var msg = 'Erro na importação.';
+                if (xhr.responseJSON) {
+                    msg = xhr.responseJSON.error || xhr.responseJSON.message || msg;
+                } else if (xhr.status === 403) {
+                    msg = 'Acesso negado. Verifique se está logado como administrador.';
+                } else if (xhr.status === 504 || xhr.status === 502 || xhr.status === 524) {
+                    msg = 'Lote da importação excedeu o tempo limite do servidor. Tente novamente.';
+                } else if (xhr.status === 0) {
+                    msg = 'Conexão interrompida durante a importação. Tente novamente.';
+                } else if (xhr.status) {
+                    msg = 'Erro HTTP ' + xhr.status + ' durante a importação.';
+                }
+                finishImportUi(false, msg);
+            },
+        });
+    }
 
     $('#import').change(function () {
         chave = util.token();
@@ -255,11 +345,12 @@
         var formData = new FormData($('.import-form')[0]);
 
         $('#process').css('display', 'block');
-        $('.progress-bar-messages').html('<div class="alert alert-info">Aguarde, processando importação...</div>');
+        updateImportProgress(0, 0);
+        $('.progress-bar-messages').html('<div class="alert alert-info">Preparando arquivo...</div>');
         $('#import-csv').prop('disabled', true);
 
         $.ajax({
-            url: baseUrl + '/upload_file',
+            url: baseUrl + '/upload_file/init',
             type: 'POST',
             data: formData,
             contentType: false,
@@ -272,33 +363,31 @@
                 }
             },
             success: function (data) {
-                $('#import-csv').prop('disabled', false);
-                if (data.success) {
-                    var msg = data.msg || ('Arquivo importado. ' + (data.total || 0) + ' registro(s) processado(s).');
-                    if (data.erros > 0) msg += ' ' + data.erros + ' linha(s) com erro.';
-                    $('.progress-bar-messages').html('<div class="alert alert-success">' + msg + '</div>');
-                    util.listAll();
-                    setTimeout(function () { $('#process').css('display', 'none'); }, 3000);
-                } else {
-                    var err = data.error || data.message || 'Erro na importação.';
-                    $('.progress-bar-messages').html('<div class="alert alert-danger">' + err + '</div>');
-                    setTimeout(function () { $('#process').css('display', 'none'); }, 5000);
+                if (!data || data.success !== true) {
+                    finishImportUi(false, (data && (data.error || data.message)) || 'Erro ao preparar a importação.');
+                    return;
                 }
-                $('.import-form')[0].reset();
+
+                if (!data.total || data.total < 1) {
+                    finishImportUi(false, 'Arquivo sem linhas de dados para importar.');
+                    return;
+                }
+
+                var delimiterMsg = data.delimiter === ';' ? ' (detectado separador ponto e vírgula)' : '';
+                $('.progress-bar-messages').html(
+                    '<div class="alert alert-info">Importando ' + data.total + ' registro(s)' + delimiterMsg + '...</div>'
+                );
+                updateImportProgress(0, data.total);
+                runImportBatch(data.import_id, data.total);
             },
             error: function (xhr) {
-                $('#import-csv').prop('disabled', false);
-                var msg = 'Erro na importação.';
+                var msg = 'Erro ao enviar o arquivo.';
                 if (xhr.responseJSON) {
                     msg = xhr.responseJSON.error || xhr.responseJSON.message || msg;
-                } else if (xhr.status === 403) {
-                    msg = 'Acesso negado. Verifique se está logado como administrador.';
-                } else if (xhr.status === 0) {
-                    msg = 'Erro de conexão. Verifique sua rede.';
+                } else if (xhr.status) {
+                    msg = 'Erro HTTP ' + xhr.status + ' ao enviar o arquivo.';
                 }
-                $('.progress-bar-messages').html('<div class="alert alert-danger">' + msg + '</div>');
-                $('.import-form')[0].reset();
-                setTimeout(function () { $('#process').css('display', 'none'); }, 5000);
+                finishImportUi(false, msg);
             },
         });
     });
