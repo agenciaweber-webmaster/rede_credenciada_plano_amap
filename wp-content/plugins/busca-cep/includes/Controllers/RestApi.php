@@ -46,6 +46,16 @@ class RestApi
         ]);
 
         // Import/Export
+        register_rest_route($namespace, '/upload_file/init', [
+            'methods'  => 'POST',
+            'callback' => [$this->resale, 'uploadFileInit'],
+        ]);
+
+        register_rest_route($namespace, '/upload_file/process', [
+            'methods'  => 'POST',
+            'callback' => [$this->resale, 'uploadFileProcess'],
+        ]);
+
         register_rest_route($namespace, '/upload_file', [
             'methods'  => 'POST',
             'callback' => [$this->resale, 'uploadFile'],
