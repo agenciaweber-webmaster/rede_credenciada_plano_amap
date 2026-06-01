@@ -13,6 +13,8 @@ use BuscaCep\Models\Storage;
  */
 class Resale
 {
+    private const IMPORT_BATCH_SIZE = 100;
+
     private $helper;
     private $storage;
 
@@ -20,10 +22,6 @@ class Resale
     {
         $this->helper = new Helper();
         $this->storage = new Storage();
-
-        if (session_status() !== PHP_SESSION_ACTIVE && !headers_sent()) {
-            session_start();
-        }
     }
 
     public function create(WP_REST_Request $request)
@@ -155,174 +153,250 @@ class Resale
     }
 
     /**
-     * Importação completa em uma única requisição: parse, formata, geocodifica e insere.
+     * Etapa 1: recebe o CSV, faz parse e prepara a importação em lotes.
+     */
+    public function uploadFileInit(WP_REST_Request $request)
+    {
+        try {
+            $this->extendImportTimeLimit();
+            $this->cleanupStaleImports();
+
+            $files = $this->resolveUploadFiles($request);
+            $validation = $this->validateImportUpload($files);
+            if ($validation instanceof WP_REST_Response) {
+                return $validation;
+            }
+
+            $importId = 'imp_' . preg_replace('/[^a-z0-9]/i', '', wp_generate_password(12, false, false));
+            $prepared = $this->prepareImportRowsFile($files['import']['tmp_name'], $importId);
+            if ($prepared instanceof WP_REST_Response) {
+                return $prepared;
+            }
+
+            $meta = [
+                'created_at'     => time(),
+                'delimiter'      => $prepared['delimiter'],
+                'header_values'  => $prepared['header_values'],
+                'next_index'     => 0,
+                'total'          => $prepared['total'],
+                'total_saved'    => 0,
+                'geo_api_calls'  => 0,
+                'geo_reused'     => 0,
+                'unchanged'      => 0,
+                'erros'          => 0,
+                'ignorados'      => 0,
+                'erro_geocoding' => null,
+            ];
+
+            if (!$this->saveImportMeta($importId, $meta)) {
+                $this->deleteImportArtifacts($importId);
+
+                return new WP_REST_Response([
+                    'success' => false,
+                    'error'   => __('Não foi possível preparar a importação. Verifique permissões da pasta de uploads.', 'busca-cep'),
+                ], 500);
+            }
+
+            $lookup = $this->buildImportLookupIndexes($this->safeGetResales());
+            $this->saveImportDupIndex($importId, $lookup['dup']);
+            $this->saveImportBusinessIndex($importId, $lookup['business']);
+            $this->saveImportAddressGeoIndex($importId, $lookup['address']);
+
+            return new WP_REST_Response([
+                'success'    => true,
+                'import_id'  => $importId,
+                'total'      => $prepared['total'],
+                'batch_size' => self::IMPORT_BATCH_SIZE,
+                'delimiter'  => $prepared['delimiter'],
+            ], 200);
+        } catch (\Throwable $e) {
+            return new WP_REST_Response([
+                'success' => false,
+                'error'   => $this->importExceptionMessage($e, __('Erro interno ao preparar a importação.', 'busca-cep')),
+            ], 500);
+        }
+    }
+
+    /**
+     * Etapa 2: geocodifica e persiste um lote de linhas (evita timeout do servidor).
+     */
+    public function uploadFileProcess(WP_REST_Request $request)
+    {
+        try {
+            $this->extendImportTimeLimit();
+
+            $params = $request->get_json_params();
+            if (!is_array($params)) {
+                $params = $request->get_params();
+            }
+
+            $importId = trim((string) ($params['import_id'] ?? ''));
+            if ($importId === '') {
+                return new WP_REST_Response(['success' => false, 'error' => __('Importação não informada.', 'busca-cep')], 400);
+            }
+
+            $meta = $this->loadImportMeta($importId);
+            if ($meta === null) {
+                return new WP_REST_Response([
+                    'success' => false,
+                    'error'   => __('Sessão de importação expirada ou inválida. Envie o arquivo novamente.', 'busca-cep'),
+                ], 404);
+            }
+
+            $totalRows = (int) ($meta['total'] ?? 0);
+            if ($totalRows === 0) {
+                $this->deleteImportArtifacts($importId);
+
+                return new WP_REST_Response([
+                    'success'        => true,
+                    'finished'       => true,
+                    'import_success' => false,
+                    'error'          => __('Arquivo sem linhas de dados para importar.', 'busca-cep'),
+                    'processed'      => 0,
+                    'total'          => 0,
+                ], 200);
+            }
+
+            $existingIndex = $this->loadImportDupIndex($importId) ?? [];
+            $businessIndex = $this->loadImportBusinessIndex($importId) ?? [];
+            $addressGeoIndex = array_merge(
+                $this->loadImportAddressGeoIndex($importId) ?? [],
+                $this->loadRuntimeGeoCache($importId)
+            );
+            $batchKeys = $this->loadImportBatchKeys($importId);
+            $geoCache = [];
+            $pendingRows = $this->processImportBatchFromFile(
+                $importId,
+                $meta,
+                self::IMPORT_BATCH_SIZE,
+                $existingIndex,
+                $businessIndex,
+                $addressGeoIndex,
+                $batchKeys,
+                $geoCache
+            );
+
+            if (!empty($pendingRows)) {
+                $this->extendImportTimeLimit(300);
+                $chunk = $this->persistImportResultsChunk($pendingRows);
+                if (!empty($chunk['error'])) {
+                    $this->saveImportMeta($importId, $meta);
+
+                    return new WP_REST_Response([
+                        'success'        => true,
+                        'finished'       => true,
+                        'import_success' => false,
+                        'error'          => $chunk['error'],
+                        'processed'      => (int) $meta['next_index'],
+                        'total'          => (int) $meta['total'],
+                        'total_saved'    => (int) ($meta['total_saved'] ?? 0),
+                        'erros'          => (int) $meta['erros'],
+                    ], 200);
+                }
+                $meta['total_saved'] = (int) ($meta['total_saved'] ?? 0) + (int) $chunk['total'];
+            }
+
+            $this->saveImportMeta($importId, $meta);
+
+            $processed = (int) $meta['next_index'];
+            $finished = $processed >= $totalRows;
+
+            if (!$finished) {
+                return new WP_REST_Response([
+                    'success'     => true,
+                    'finished'    => false,
+                    'processed'   => $processed,
+                    'total'       => $totalRows,
+                    'total_saved'    => (int) ($meta['total_saved'] ?? 0),
+                    'geo_reused'     => (int) ($meta['geo_reused'] ?? 0),
+                    'geo_api_calls'  => (int) ($meta['geo_api_calls'] ?? 0),
+                    'unchanged'      => (int) ($meta['unchanged'] ?? 0),
+                    'next_offset' => $processed,
+                    'erros'       => (int) $meta['erros'],
+                ], 200);
+            }
+
+            $this->deleteImportArtifacts($importId);
+
+            $totalSaved = (int) ($meta['total_saved'] ?? 0);
+            $unchanged = (int) ($meta['unchanged'] ?? 0);
+
+            if ($totalSaved === 0 && $unchanged === 0) {
+                $msg = 'Nenhum registro foi importado.';
+                if ($meta['erros'] > 0 && !empty($meta['erro_geocoding'])) {
+                    $msg .= ' ' . $meta['erro_geocoding'];
+                } elseif ($meta['erros'] > 0) {
+                    $msg .= ' Verifique se as colunas nome, cep e numero estão preenchidas e se o token da API Google está configurado corretamente.';
+                }
+
+                return new WP_REST_Response([
+                    'success'        => true,
+                    'finished'       => true,
+                    'import_success' => false,
+                    'error'          => $msg,
+                    'processed'      => $processed,
+                    'total'          => $totalRows,
+                    'erros'          => (int) $meta['erros'],
+                ], 200);
+            }
+
+            $msg = 'Importação concluída.';
+            if ($meta['ignorados'] > 0) {
+                $msg .= " {$meta['ignorados']} linha(s) duplicada(s) ou ignorada(s).";
+            }
+            if ($unchanged > 0) {
+                $msg .= " {$unchanged} já existente(s) sem alteração (sem custo de API).";
+            }
+            if (!empty($meta['geo_reused'])) {
+                $msg .= " {$meta['geo_reused']} coordenada(s) reutilizada(s) da base.";
+            }
+            if (!empty($meta['geo_api_calls'])) {
+                $msg .= " {$meta['geo_api_calls']} consulta(s) à API Google.";
+            }
+
+            return new WP_REST_Response([
+                'success'        => true,
+                'finished'       => true,
+                'import_success' => true,
+                'msg'            => $msg,
+                'processed'      => $processed,
+                'total'          => $totalRows,
+                'total_saved'    => $totalSaved,
+                'erros'          => (int) $meta['erros'],
+                'ignorados'      => (int) $meta['ignorados'],
+                'unchanged'      => $unchanged,
+                'geo_reused'     => (int) ($meta['geo_reused'] ?? 0),
+                'geo_api_calls'  => (int) ($meta['geo_api_calls'] ?? 0),
+            ], 200);
+        } catch (\Throwable $e) {
+            return new WP_REST_Response([
+                'success' => false,
+                'error'   => $this->importExceptionMessage($e, __('Erro interno durante a importação.', 'busca-cep')),
+            ], 500);
+        }
+    }
+
+    /**
+     * @deprecated Use uploadFileInit + uploadFileProcess. Mantido por compatibilidade.
      */
     public function uploadFile(WP_REST_Request $request)
     {
-        $files = $request->get_file_params();
-        if (empty($files)) {
-            $files = isset($_FILES) ? $_FILES : [];
-        }
-        if (!isset($files['import']) || empty($files['import']['name'])) {
-            return new WP_REST_Response(['success' => false, 'error' => __('Por favor selecione um arquivo', 'busca-cep')], 400);
+        $init = $this->uploadFileInit($request);
+        $data = $init->get_data();
+        if (empty($data['success'])) {
+            return $init;
         }
 
-        if (strtolower(pathinfo($files['import']['name'], PATHINFO_EXTENSION)) !== 'csv') {
-            return new WP_REST_Response(['success' => false, 'error' => __('Formato incompatível. Use CSV.', 'busca-cep')], 400);
-        }
+        $importId = $data['import_id'];
+        $process = null;
+        do {
+            $batchRequest = new WP_REST_Request('POST');
+            $batchRequest->set_param('import_id', $importId);
+            $process = $this->uploadFileProcess($batchRequest);
+            $batch = $process->get_data();
+        } while (!empty($batch['success']) && empty($batch['finished']));
 
-        $handle = @fopen($files['import']['tmp_name'], 'rb');
-        if ($handle === false) {
-            return new WP_REST_Response(['success' => false, 'error' => __('Não foi possível ler o arquivo.', 'busca-cep')], 400);
-        }
-
-        $bom = fread($handle, 3);
-        if ($bom !== "\xEF\xBB\xBF") {
-            rewind($handle);
-        }
-
-        $headerLine = fgetcsv($handle, 0, ',', '"');
-        if ($headerLine === false || $headerLine === [null] || empty(array_filter($headerLine, function ($v) {
-            return $v !== null && trim((string) $v) !== '';
-        }))) {
-            fclose($handle);
-            return new WP_REST_Response(['success' => false, 'error' => 'Arquivo vazio ou sem cabeçalho.'], 400);
-        }
-
-        $header_values = [];
-        foreach ($headerLine as $hv) {
-            $header_values[] = strtolower(trim(preg_replace('/\s+/', '_', $this->helper->formatString($hv ?? ''))));
-        }
-
-        $header_aliases = [
-            'razao_social'  => 'razao',
-            'nome_fantasia' => 'fantasia',
-            'localidade'    => 'municipio',
-            'cidade'        => 'municipio',
-            'cnpj/crm'      => 'cnpj',
-        ];
-        $header_values = array_map(function ($h) use ($header_aliases) {
-            return $header_aliases[$h] ?? $h;
-        }, $header_values);
-
-        $toInsert = [];
-        $batchKeys = [];
-        $erros = 0;
-        $ignorados = 0;
-        $erro_geocoding = null;
-
-        while (($cells = fgetcsv($handle, 0, ',', '"')) !== false) {
-            $temConteudo = false;
-            foreach ($cells as $c) {
-                if ($c !== null && trim((string) $c) !== '') {
-                    $temConteudo = true;
-                    break;
-                }
-            }
-            if (!$temConteudo) {
-                continue;
-            }
-
-            $row = @array_combine($header_values, array_pad(array_slice($cells, 0, count($header_values)), count($header_values), ''));
-            if ($row === false) {
-                $erros++;
-                continue;
-            }
-
-            $nome = trim($row['nome'] ?? '');
-            if (!empty($nome)) {
-                $row['razao'] = $nome;
-                $row['fantasia'] = $nome;
-            }
-            $razao = trim($row['razao'] ?? $nome);
-            $cep = preg_replace('/[^\d\-]/', '', $row['cep'] ?? '');
-            $numero = trim((string) ($row['numero'] ?? ''));
-
-            if (empty($razao) || empty($cep) || $numero === '') {
-                $erros++;
-                continue;
-            }
-            if (strlen($cep) > 9) {
-                $erros++;
-                continue;
-            }
-
-            $result = $this->getGeo($cep, $numero, $this->buildGeocodeAddressLine($row, $numero));
-            if (isset($result->error) || empty($result->latitude ?? null) || empty($result->longitude ?? null)) {
-                $erros++;
-                if ($erro_geocoding === null && isset($result->error)) {
-                    $erro_geocoding = $result->error;
-                }
-                continue;
-            }
-
-            $resale = $this->buildImportResaleData($row, $result, $cep, null);
-            $validate = $this->storage->validate($resale);
-            if (isset($validate->quantity)) {
-                $resale['id'] = $validate->id;
-            }
-
-            $lat = round((float) ($resale['lat'] ?? 0), 5);
-            $lng = round((float) ($resale['lng'] ?? 0), 5);
-            $esp = mb_strtolower(trim((string) ($resale['especialidade'] ?? '')));
-            $planoKey = Helper::normalizePlanoForDuplicate($resale['plano'] ?? '');
-            $cnpjKey = Helper::normalizeCnpjCrmForDuplicate($resale['cnpj'] ?? '');
-            $batchKey = $lat . '|' . $lng . '|' . $esp . '|' . $planoKey . '|' . $cnpjKey;
-            if (isset($batchKeys[$batchKey])) {
-                $ignorados++;
-                continue;
-            }
-            $batchKeys[$batchKey] = true;
-            $toInsert[] = $resale;
-        }
-
-        fclose($handle);
-
-        $save = ['resales' => []];
-        $update = ['resales' => []];
-        foreach ($toInsert as $r) {
-            if (isset($r['id'])) {
-                $update['resales'][] = $r;
-            } else {
-                $save['resales'][] = $r;
-            }
-        }
-
-        if (!empty($save['resales'])) {
-            $this->storage->insert($save);
-        }
-        if (!empty($update['resales'])) {
-            $this->storage->update($update);
-        }
-
-        $total = count($save['resales']) + count($update['resales']);
-
-        if ($total === 0) {
-            $msg = 'Nenhum registro foi importado.';
-            if ($erros > 0 && $erro_geocoding) {
-                $msg .= ' ' . $erro_geocoding;
-            } elseif ($erros > 0) {
-                $msg .= ' Verifique se as colunas nome, cep e numero estão preenchidas e se o token da API Google está configurado corretamente.';
-            }
-            return new WP_REST_Response([
-                'success' => false,
-                'error'   => $msg,
-                'total'   => 0,
-                'erros'   => $erros,
-            ], 200);
-        }
-
-        $msg = 'Importação concluída.';
-        if ($ignorados > 0) {
-            $msg .= " {$ignorados} linha(s) duplicada(s) ignorada(s).";
-        }
-        return new WP_REST_Response([
-            'success'   => true,
-            'msg'       => $msg,
-            'total'     => $total,
-            'erros'     => $erros,
-            'ignorados' => $ignorados,
-        ], 200);
+        return $process;
     }
 
     public function export()
@@ -363,6 +437,1058 @@ class Resale
         }
         fclose($out);
         exit;
+    }
+
+    private function extendImportTimeLimit(int $seconds = 120): void
+    {
+        if (function_exists('set_time_limit')) {
+            @set_time_limit($seconds);
+        }
+    }
+
+    private function resolveUploadFiles(WP_REST_Request $request): array
+    {
+        $files = $request->get_file_params();
+        if (empty($files)) {
+            $files = isset($_FILES) ? $_FILES : [];
+        }
+
+        return $files;
+    }
+
+    private function importExceptionMessage(\Throwable $e, string $fallback): string
+    {
+        if (defined('WP_DEBUG') && WP_DEBUG) {
+            return $fallback . ' (' . $e->getMessage() . ')';
+        }
+
+        return $fallback;
+    }
+
+    private function validateImportUpload(array $files)
+    {
+        if (!isset($files['import']) || empty($files['import']['name'])) {
+            return new WP_REST_Response(['success' => false, 'error' => __('Por favor selecione um arquivo', 'busca-cep')], 400);
+        }
+
+        if (strtolower(pathinfo($files['import']['name'], PATHINFO_EXTENSION)) !== 'csv') {
+            return new WP_REST_Response(['success' => false, 'error' => __('Formato incompatível. Use CSV.', 'busca-cep')], 400);
+        }
+
+        if (empty($files['import']['tmp_name']) || !is_readable($files['import']['tmp_name'])) {
+            return new WP_REST_Response(['success' => false, 'error' => __('Não foi possível ler o arquivo.', 'busca-cep')], 400);
+        }
+
+        return true;
+    }
+
+    /**
+     * Converte o CSV enviado em arquivo JSONL (uma linha por registro) para leitura em lotes.
+     *
+     * @return array{total: int, delimiter: string, header_values: array<int, string>}|WP_REST_Response
+     */
+    private function prepareImportRowsFile(string $tmpPath, string $importId)
+    {
+        $handle = @fopen($tmpPath, 'rb');
+        if ($handle === false) {
+            return new WP_REST_Response(['success' => false, 'error' => __('Não foi possível ler o arquivo.', 'busca-cep')], 400);
+        }
+
+        $bom = fread($handle, 3);
+        if ($bom !== "\xEF\xBB\xBF") {
+            rewind($handle);
+        }
+
+        $delimiter = $this->detectCsvDelimiter($handle);
+        $headerLine = fgetcsv($handle, 0, $delimiter, '"');
+        if ($headerLine === false || $headerLine === [null] || empty(array_filter($headerLine, function ($v) {
+            return $v !== null && trim((string) $v) !== '';
+        }))) {
+            fclose($handle);
+
+            return new WP_REST_Response(['success' => false, 'error' => 'Arquivo vazio ou sem cabeçalho.'], 400);
+        }
+
+        $headerValues = $this->normalizeImportHeaders($headerLine);
+        $rowsPath = $this->importRowsPath($importId);
+        $rowsHandle = @fopen($rowsPath, 'wb');
+        if ($rowsHandle === false) {
+            fclose($handle);
+
+            return new WP_REST_Response([
+                'success' => false,
+                'error'   => __('Não foi possível gravar arquivo temporário da importação.', 'busca-cep'),
+            ], 500);
+        }
+
+        $total = 0;
+        while (($cells = fgetcsv($handle, 0, $delimiter, '"')) !== false) {
+            if (!$this->csvRowHasContent($cells)) {
+                continue;
+            }
+
+            $row = @array_combine(
+                $headerValues,
+                array_pad(array_slice($cells, 0, count($headerValues)), count($headerValues), '')
+            );
+            if ($row === false) {
+                continue;
+            }
+
+            $normalized = array_map(static function ($v) {
+                return is_string($v) ? $v : (string) ($v ?? '');
+            }, $row);
+
+            $line = wp_json_encode($normalized, JSON_UNESCAPED_UNICODE);
+            if ($line === false) {
+                continue;
+            }
+
+            fwrite($rowsHandle, $line . "\n");
+            $total++;
+        }
+
+        fclose($handle);
+        fclose($rowsHandle);
+
+        if ($total === 0) {
+            @unlink($rowsPath);
+
+            return new WP_REST_Response(['success' => false, 'error' => 'Arquivo sem linhas de dados para importar.'], 400);
+        }
+
+        return [
+            'total'         => $total,
+            'delimiter'     => $delimiter,
+            'header_values' => $headerValues,
+        ];
+    }
+
+    private function detectCsvDelimiter($handle): string
+    {
+        $pos = ftell($handle);
+        $line = fgets($handle);
+        if ($line === false) {
+            fseek($handle, $pos);
+
+            return ',';
+        }
+        fseek($handle, $pos);
+
+        $semi = substr_count($line, ';');
+        $comma = substr_count($line, ',');
+
+        return $semi > $comma ? ';' : ',';
+    }
+
+    /**
+     * @param array<int, string|null> $headerLine
+     * @return array<int, string>
+     */
+    private function normalizeImportHeaders(array $headerLine): array
+    {
+        $headerValues = [];
+        foreach ($headerLine as $hv) {
+            $headerValues[] = strtolower(trim(preg_replace('/\s+/', '_', $this->helper->formatString($hv ?? ''))));
+        }
+
+        $headerAliases = [
+            'razao_social'  => 'razao',
+            'nome_fantasia' => 'fantasia',
+            'localidade'    => 'municipio',
+            'cidade'        => 'municipio',
+            'cnpj/crm'      => 'cnpj',
+        ];
+
+        return array_map(static function ($h) use ($headerAliases) {
+            return $headerAliases[$h] ?? $h;
+        }, $headerValues);
+    }
+
+    /**
+     * @param array<int, string|null> $cells
+     */
+    private function csvRowHasContent(array $cells): bool
+    {
+        foreach ($cells as $c) {
+            if ($c !== null && trim((string) $c) !== '') {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function safeGetResales(): array
+    {
+        try {
+            return $this->storage->getResales('*');
+        } catch (\Throwable $e) {
+            return [];
+        }
+    }
+
+    private function getImportTempDir(): string
+    {
+        $upload = wp_upload_dir();
+        if (!empty($upload['error'])) {
+            throw new \RuntimeException($upload['error']);
+        }
+
+        $dir = $upload['basedir'] . '/busca-cep-imports';
+        if (!is_dir($dir) && !wp_mkdir_p($dir)) {
+            throw new \RuntimeException('Não foi possível criar pasta temporária de importação.');
+        }
+
+        return $dir;
+    }
+
+    private function importSafeId(string $importId): string
+    {
+        return preg_replace('/[^a-zA-Z0-9_-]/', '', $importId);
+    }
+
+    private function importMetaPath(string $importId): string
+    {
+        return $this->getImportTempDir() . '/' . $this->importSafeId($importId) . '.meta.json';
+    }
+
+    private function importRowsPath(string $importId): string
+    {
+        return $this->getImportTempDir() . '/' . $this->importSafeId($importId) . '.rows.jsonl';
+    }
+
+    private function importPendingPath(string $importId): string
+    {
+        return $this->getImportTempDir() . '/' . $this->importSafeId($importId) . '.pending.jsonl';
+    }
+
+    private function importDupIndexPath(string $importId): string
+    {
+        return $this->getImportTempDir() . '/' . $this->importSafeId($importId) . '.dup-index.json';
+    }
+
+    private function importBatchKeysPath(string $importId): string
+    {
+        return $this->getImportTempDir() . '/' . $this->importSafeId($importId) . '.batch-keys.txt';
+    }
+
+    private function importBusinessIndexPath(string $importId): string
+    {
+        return $this->getImportTempDir() . '/' . $this->importSafeId($importId) . '.business-index.json';
+    }
+
+    private function importAddressGeoIndexPath(string $importId): string
+    {
+        return $this->getImportTempDir() . '/' . $this->importSafeId($importId) . '.address-geo-index.json';
+    }
+
+    private function importRuntimeGeoCachePath(string $importId): string
+    {
+        return $this->getImportTempDir() . '/' . $this->importSafeId($importId) . '.runtime-geo.jsonl';
+    }
+
+    /**
+     * @param array<string, int> $index
+     */
+    private function saveImportDupIndex(string $importId, array $index): void
+    {
+        $json = wp_json_encode($index, JSON_UNESCAPED_UNICODE);
+        if ($json !== false) {
+            file_put_contents($this->importDupIndexPath($importId), $json, LOCK_EX);
+        }
+    }
+
+    /**
+     * @return array<string, int>|null
+     */
+    private function loadImportDupIndex(string $importId): ?array
+    {
+        $path = $this->importDupIndexPath($importId);
+        if (!is_readable($path)) {
+            return null;
+        }
+
+        $decoded = json_decode((string) file_get_contents($path), true);
+
+        return is_array($decoded) ? $decoded : null;
+    }
+
+    /**
+     * @return array<string, true>
+     */
+    private function loadImportBatchKeys(string $importId): array
+    {
+        $path = $this->importBatchKeysPath($importId);
+        if (!is_readable($path)) {
+            return [];
+        }
+
+        $keys = [];
+        $handle = fopen($path, 'rb');
+        if ($handle === false) {
+            return [];
+        }
+
+        while (($line = fgets($handle)) !== false) {
+            $key = trim($line);
+            if ($key !== '') {
+                $keys[$key] = true;
+            }
+        }
+
+        fclose($handle);
+
+        return $keys;
+    }
+
+    private function appendImportBatchKey(string $importId, string $key): void
+    {
+        file_put_contents($this->importBatchKeysPath($importId), $key . "\n", FILE_APPEND | LOCK_EX);
+    }
+
+    /**
+     * @param array<string, array<string, mixed>> $index
+     */
+    private function saveImportBusinessIndex(string $importId, array $index): void
+    {
+        $json = wp_json_encode($index, JSON_UNESCAPED_UNICODE);
+        if ($json !== false) {
+            file_put_contents($this->importBusinessIndexPath($importId), $json, LOCK_EX);
+        }
+    }
+
+    /**
+     * @return array<string, array<string, mixed>>|null
+     */
+    private function loadImportBusinessIndex(string $importId): ?array
+    {
+        $path = $this->importBusinessIndexPath($importId);
+        if (!is_readable($path)) {
+            return null;
+        }
+
+        $decoded = json_decode((string) file_get_contents($path), true);
+
+        return is_array($decoded) ? $decoded : null;
+    }
+
+    /**
+     * @param array<string, array{lat: float, lng: float}> $index
+     */
+    private function saveImportAddressGeoIndex(string $importId, array $index): void
+    {
+        $json = wp_json_encode($index, JSON_UNESCAPED_UNICODE);
+        if ($json !== false) {
+            file_put_contents($this->importAddressGeoIndexPath($importId), $json, LOCK_EX);
+        }
+    }
+
+    /**
+     * @return array<string, array{lat: float, lng: float}>|null
+     */
+    private function loadImportAddressGeoIndex(string $importId): ?array
+    {
+        $path = $this->importAddressGeoIndexPath($importId);
+        if (!is_readable($path)) {
+            return null;
+        }
+
+        $decoded = json_decode((string) file_get_contents($path), true);
+
+        return is_array($decoded) ? $decoded : null;
+    }
+
+    /**
+     * Coordenadas obtidas via Google nesta importação (reutilizadas entre lotes).
+     *
+     * @return array<string, array{lat: float, lng: float}>
+     */
+    private function loadRuntimeGeoCache(string $importId): array
+    {
+        $path = $this->importRuntimeGeoCachePath($importId);
+        if (!is_readable($path)) {
+            return [];
+        }
+
+        $cache = [];
+        $handle = fopen($path, 'rb');
+        if ($handle === false) {
+            return [];
+        }
+
+        while (($line = fgets($handle)) !== false) {
+            $entry = json_decode(trim($line), true);
+            if (!is_array($entry) || empty($entry['k'])) {
+                continue;
+            }
+            $cache[(string) $entry['k']] = [
+                'lat' => (float) ($entry['lat'] ?? 0),
+                'lng' => (float) ($entry['lng'] ?? 0),
+            ];
+        }
+
+        fclose($handle);
+
+        return $cache;
+    }
+
+    private function appendRuntimeGeoCache(string $importId, string $addressKey, float $lat, float $lng): void
+    {
+        $line = wp_json_encode(['k' => $addressKey, 'lat' => $lat, 'lng' => $lng], JSON_UNESCAPED_UNICODE);
+        if ($line !== false) {
+            file_put_contents($this->importRuntimeGeoCachePath($importId), $line . "\n", FILE_APPEND | LOCK_EX);
+        }
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    private function loadImportMeta(string $importId): ?array
+    {
+        $path = $this->importMetaPath($importId);
+        if (!is_readable($path)) {
+            return null;
+        }
+
+        $raw = file_get_contents($path);
+        if ($raw === false) {
+            return null;
+        }
+
+        $meta = json_decode($raw, true);
+
+        return is_array($meta) ? $meta : null;
+    }
+
+    /**
+     * @param array<string, mixed> $meta
+     */
+    private function saveImportMeta(string $importId, array $meta): bool
+    {
+        $json = wp_json_encode($meta, JSON_UNESCAPED_UNICODE);
+        if ($json === false) {
+            return false;
+        }
+
+        return file_put_contents($this->importMetaPath($importId), $json, LOCK_EX) !== false;
+    }
+
+    private function deleteImportArtifacts(string $importId): void
+    {
+        foreach ([
+            $this->importMetaPath($importId),
+            $this->importRowsPath($importId),
+            $this->importPendingPath($importId),
+            $this->importDupIndexPath($importId),
+            $this->importBusinessIndexPath($importId),
+            $this->importAddressGeoIndexPath($importId),
+            $this->importRuntimeGeoCachePath($importId),
+            $this->importBatchKeysPath($importId),
+            $this->getImportTempDir() . '/' . $this->importSafeId($importId) . '.json',
+        ] as $path) {
+            if (is_file($path)) {
+                @unlink($path);
+            }
+        }
+    }
+
+    private function cleanupStaleImports(): void
+    {
+        $dir = $this->getImportTempDir();
+        $patterns = ['*.meta.json', '*.rows.jsonl', '*.pending.jsonl', '*.dup-index.json', '*.business-index.json', '*.address-geo-index.json', '*.runtime-geo.jsonl', '*.batch-keys.txt', '*.json'];
+        $limit = time() - (6 * (defined('HOUR_IN_SECONDS') ? HOUR_IN_SECONDS : 3600));
+
+        foreach ($patterns as $pattern) {
+            $files = glob($dir . '/' . $pattern);
+            if ($files === false) {
+                continue;
+            }
+            foreach ($files as $file) {
+                if (is_file($file) && filemtime($file) < $limit) {
+                    @unlink($file);
+                }
+            }
+        }
+    }
+
+    /**
+     * @param array<string, mixed> $meta
+     * @param array<string, int> $existingIndex
+     * @param array<string, array<string, mixed>> $businessIndex
+     * @param array<string, array{lat: float, lng: float}> $addressGeoIndex
+     * @param array<string, true> $batchKeys
+     * @param array<string, array<string, mixed>> $geoCache
+     * @return array<int, array<string, mixed>>
+     */
+    private function processImportBatchFromFile(
+        string $importId,
+        array &$meta,
+        int $batchSize,
+        array $existingIndex,
+        array $businessIndex,
+        array $addressGeoIndex,
+        array &$batchKeys,
+        array &$geoCache
+    ): array {
+        $path = $this->importRowsPath($importId);
+        if (!is_readable($path)) {
+            throw new \RuntimeException('Arquivo temporário da importação não encontrado.');
+        }
+
+        $handle = fopen($path, 'rb');
+        if ($handle === false) {
+            throw new \RuntimeException('Não foi possível abrir arquivo temporário da importação.');
+        }
+
+        $start = (int) ($meta['next_index'] ?? 0);
+        $processedInBatch = 0;
+        $pendingRows = [];
+        $currentLine = 0;
+
+        while (($line = fgets($handle)) !== false) {
+            if ($currentLine < $start) {
+                $currentLine++;
+                continue;
+            }
+            if ($processedInBatch >= $batchSize) {
+                break;
+            }
+
+            $row = json_decode(trim($line), true);
+            if (!is_array($row)) {
+                $meta['erros'] = (int) ($meta['erros'] ?? 0) + 1;
+                $currentLine++;
+                $processedInBatch++;
+                continue;
+            }
+
+            $pending = $this->processImportRow(
+                $importId,
+                $row,
+                $meta,
+                $existingIndex,
+                $businessIndex,
+                $addressGeoIndex,
+                $batchKeys,
+                $geoCache
+            );
+            if ($pending !== null) {
+                $pendingRows[] = $pending;
+            }
+
+            $currentLine++;
+            $processedInBatch++;
+        }
+
+        fclose($handle);
+        $meta['next_index'] = $start + $processedInBatch;
+
+        return $pendingRows;
+    }
+
+    /**
+     * @param array<string, string> $row
+     * @param array<string, mixed> $meta
+     * @param array<string, int> $existingIndex
+     * @param array<string, array<string, mixed>> $businessIndex
+     * @param array<string, array{lat: float, lng: float}> $addressGeoIndex
+     * @param array<string, true> $batchKeys
+     * @param array<string, array<string, mixed>> $geoCache
+     * @return array<string, mixed>|null
+     */
+    private function processImportRow(
+        string $importId,
+        array $row,
+        array &$meta,
+        array $existingIndex,
+        array $businessIndex,
+        array $addressGeoIndex,
+        array &$batchKeys,
+        array &$geoCache
+    ): ?array {
+        $nome = trim($row['nome'] ?? '');
+        if ($nome !== '') {
+            $row['razao'] = $nome;
+            $row['fantasia'] = $nome;
+        }
+
+        $razao = trim($row['razao'] ?? $nome);
+        $cep = preg_replace('/[^\d\-]/', '', $row['cep'] ?? '');
+        $numero = trim((string) ($row['numero'] ?? ''));
+
+        if ($razao === '' || $cep === '' || $numero === '') {
+            $meta['erros'] = (int) ($meta['erros'] ?? 0) + 1;
+            return null;
+        }
+        if (strlen($cep) > 9) {
+            $meta['erros'] = (int) ($meta['erros'] ?? 0) + 1;
+            return null;
+        }
+
+        $businessKey = $this->importBusinessKeyFromRow($row, $cep, $numero);
+        $existingHit = ($businessKey !== '' && isset($businessIndex[$businessKey]))
+            ? $businessIndex[$businessKey]
+            : null;
+
+        if ($existingHit !== null && $this->importRowMatchesSnapshot($row, $cep, $numero, $existingHit['snapshot'] ?? [])) {
+            $meta['unchanged'] = (int) ($meta['unchanged'] ?? 0) + 1;
+            $meta['ignorados'] = (int) ($meta['ignorados'] ?? 0) + 1;
+            return null;
+        }
+
+        $knownId = ($existingHit !== null && !empty($existingHit['id'])) ? (int) $existingHit['id'] : null;
+        $result = $this->resolveImportGeoResult(
+            $importId,
+            $row,
+            $cep,
+            $numero,
+            $geoCache,
+            $businessIndex,
+            $addressGeoIndex,
+            $meta
+        );
+
+        if (isset($result->error) || empty($result->latitude ?? null) || empty($result->longitude ?? null)) {
+            $meta['erros'] = (int) ($meta['erros'] ?? 0) + 1;
+            if (empty($meta['erro_geocoding']) && isset($result->error)) {
+                $meta['erro_geocoding'] = $result->error;
+            }
+            return null;
+        }
+
+        $resale = $this->buildImportResaleData($row, $result, $cep, null);
+        $batchKey = $this->duplicateKeyFromResale($resale);
+
+        if (!empty($batchKeys[$batchKey])) {
+            $meta['ignorados'] = (int) ($meta['ignorados'] ?? 0) + 1;
+            return null;
+        }
+
+        if ($knownId !== null) {
+            $resale['id'] = $knownId;
+        } elseif (isset($existingIndex[$batchKey])) {
+            $resale['id'] = $existingIndex[$batchKey];
+        }
+
+        $batchKeys[$batchKey] = true;
+        $this->appendImportBatchKey($importId, $batchKey);
+
+        return $resale;
+    }
+
+    /**
+     * Reutiliza coordenadas da base ou do lote antes de consultar a API Google (custo).
+     *
+     * @param array<string, array<string, mixed>> $geoCache
+     * @param array<string, array<string, mixed>> $businessIndex
+     * @param array<string, array{lat: float, lng: float}> $addressGeoIndex
+     * @param array<string, mixed> $meta
+     */
+    private function resolveImportGeoResult(
+        string $importId,
+        array $row,
+        string $cep,
+        string $numero,
+        array &$geoCache,
+        array $businessIndex,
+        array $addressGeoIndex,
+        array &$meta
+    ) {
+        $latCsv = trim((string) ($row['lat'] ?? $row['latitude'] ?? ''));
+        $lngCsv = trim((string) ($row['lng'] ?? $row['longitude'] ?? ''));
+        if ($latCsv !== '' && $lngCsv !== '' && is_numeric($latCsv) && is_numeric($lngCsv)) {
+            $meta['geo_reused'] = (int) ($meta['geo_reused'] ?? 0) + 1;
+            return (object) [
+                'latitude'  => (float) $latCsv,
+                'longitude' => (float) $lngCsv,
+            ];
+        }
+
+        $businessKey = $this->importBusinessKeyFromRow($row, $cep, $numero);
+        if ($businessKey !== '' && isset($businessIndex[$businessKey])) {
+            $hit = $businessIndex[$businessKey];
+            if ($this->isValidImportLatLng($hit['lat'] ?? null, $hit['lng'] ?? null)) {
+                $meta['geo_reused'] = (int) ($meta['geo_reused'] ?? 0) + 1;
+                return (object) [
+                    'latitude'  => (float) $hit['lat'],
+                    'longitude' => (float) $hit['lng'],
+                ];
+            }
+        }
+
+        $addressKey = $this->importAddressKey($cep, $numero);
+        if ($addressKey !== '' && isset($addressGeoIndex[$addressKey])) {
+            $coords = $addressGeoIndex[$addressKey];
+            if ($this->isValidImportLatLng($coords['lat'] ?? null, $coords['lng'] ?? null)) {
+                $meta['geo_reused'] = (int) ($meta['geo_reused'] ?? 0) + 1;
+                return (object) [
+                    'latitude'  => (float) $coords['lat'],
+                    'longitude' => (float) $coords['lng'],
+                ];
+            }
+        }
+
+        $addressLine = $this->buildGeocodeAddressLine($row, $numero);
+        $geoCacheKey = $cep . '|' . $numero . '|' . ($addressLine ?? '');
+        $result = $this->getGeoFromImportCache($geoCache, $geoCacheKey, $cep, $numero, $addressLine, $meta);
+
+        if ($addressKey !== ''
+            && empty($result->error ?? null)
+            && $this->isValidImportLatLng($result->latitude ?? null, $result->longitude ?? null)
+        ) {
+            $this->appendRuntimeGeoCache(
+                $importId,
+                $addressKey,
+                (float) $result->latitude,
+                (float) $result->longitude
+            );
+        }
+
+        return $result;
+    }
+
+    /**
+     * @param array<string, array<string, mixed>> $geoCache
+     * @param array<string, mixed>|null $meta
+     */
+    private function getGeoFromImportCache(array &$geoCache, string $key, string $cep, string $numero, ?string $addressLine, ?array &$meta = null)
+    {
+        if (isset($geoCache[$key])) {
+            return (object) $geoCache[$key];
+        }
+
+        $result = $this->getGeo($cep, $numero, $addressLine);
+        if ($meta !== null) {
+            $meta['geo_api_calls'] = (int) ($meta['geo_api_calls'] ?? 0) + 1;
+        }
+        $geoCache[$key] = [
+            'latitude'  => $result->latitude ?? null,
+            'longitude' => $result->longitude ?? null,
+            'error'     => $result->error ?? null,
+        ];
+
+        return $result;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $rows
+     * @return array{total: int, save: int, update: int, error?: string}
+     */
+    private function persistImportResultsChunk(array $rows): array
+    {
+        $save = [];
+        $update = [];
+
+        foreach ($rows as $r) {
+            if (isset($r['id'])) {
+                $update[] = $r;
+            } else {
+                $save[] = $r;
+            }
+        }
+
+        try {
+            $saved = !empty($save) ? $this->storage->bulkInsert($save) : 0;
+            $updated = !empty($update) ? $this->storage->bulkUpdate($update) : 0;
+
+            return [
+                'total'  => $saved + $updated,
+                'save'   => $saved,
+                'update' => $updated,
+            ];
+        } catch (\Throwable $e) {
+            return [
+                'total'  => 0,
+                'save'   => 0,
+                'update' => 0,
+                'error'  => $this->importExceptionMessage(
+                    $e,
+                    __('Erro ao salvar registros importados. Verifique se o arquivo resales.json não está corrompido.', 'busca-cep')
+                ),
+            ];
+        }
+    }
+
+    /**
+     * @param array<string, mixed> $state
+     * @return array{total: int, save: int, update: int, error?: string}
+     */
+    private function persistImportResults(array $state): array
+    {
+        $save = ['resales' => []];
+        $update = ['resales' => []];
+
+        foreach ($state['to_insert'] as $r) {
+            if (isset($r['id'])) {
+                $update['resales'][] = $r;
+            } else {
+                $save['resales'][] = $r;
+            }
+        }
+
+        try {
+            if (!empty($save['resales'])) {
+                $this->storage->bulkInsert($save['resales']);
+            }
+            if (!empty($update['resales'])) {
+                $this->storage->bulkUpdate($update['resales']);
+            }
+        } catch (\Throwable $e) {
+            return [
+                'total'  => 0,
+                'save'   => 0,
+                'update' => 0,
+                'error'  => $this->importExceptionMessage(
+                    $e,
+                    __('Erro ao salvar registros importados. Verifique se o arquivo resales.json não está corrompido.', 'busca-cep')
+                ),
+            ];
+        }
+
+        return [
+            'total'  => count($save['resales']) + count($update['resales']),
+            'save'   => count($save['resales']),
+            'update' => count($update['resales']),
+        ];
+    }
+
+    /**
+     * Chave de duplicata (lat, lng, especialidade, plano, CNPJ/CRM) — mesma regra de Storage::validate.
+     */
+    private function duplicateKeyFromResale(array $resale): string
+    {
+        $lat = round((float) ($resale['lat'] ?? 0), 5);
+        $lng = round((float) ($resale['lng'] ?? 0), 5);
+        $esp = mb_strtolower(trim((string) ($resale['especialidade'] ?? '')));
+        $planoKey = Helper::normalizePlanoForDuplicate($resale['plano'] ?? '');
+        $cnpjKey = Helper::normalizeCnpjCrmForDuplicate($resale['cnpj'] ?? '');
+
+        return $lat . '|' . $lng . '|' . $esp . '|' . $planoKey . '|' . $cnpjKey;
+    }
+
+    /**
+     * Índice de revendas existentes para evitar reler o JSON a cada linha da importação.
+     *
+     * @return array<string, int>
+     */
+    private function buildDuplicateIndex(array $rows): array
+    {
+        $index = [];
+        foreach ($rows as $r) {
+            $key = $this->duplicateKeyFromResale($r);
+            $index[$key] = (int) ($r['id'] ?? 0);
+        }
+
+        return $index;
+    }
+
+    /**
+     * Índices para reutilizar coordenadas e detectar registros idênticos sem chamar a API Google.
+     *
+     * @return array{dup: array<string, int>, business: array<string, array<string, mixed>>, address: array<string, array{lat: float, lng: float}>}
+     */
+    private function buildImportLookupIndexes(array $rows): array
+    {
+        $dup = [];
+        $business = [];
+        $address = [];
+
+        foreach ($rows as $r) {
+            if (!is_array($r)) {
+                continue;
+            }
+
+            $dup[$this->duplicateKeyFromResale($r)] = (int) ($r['id'] ?? 0);
+
+            $lat = $r['lat'] ?? null;
+            $lng = $r['lng'] ?? null;
+            if ($this->isValidImportLatLng($lat, $lng)) {
+                $addrKey = $this->importAddressKey((string) ($r['cep'] ?? ''), (string) ($r['numero'] ?? ''));
+                if ($addrKey !== '' && !isset($address[$addrKey])) {
+                    $address[$addrKey] = [
+                        'lat' => (float) $lat,
+                        'lng' => (float) $lng,
+                    ];
+                }
+            }
+
+            $bizKey = $this->importBusinessKeyFromResale($r);
+            if ($bizKey === '') {
+                continue;
+            }
+
+            $business[$bizKey] = [
+                'id'       => (int) ($r['id'] ?? 0),
+                'lat'      => $this->isValidImportLatLng($lat, $lng) ? (float) $lat : null,
+                'lng'      => $this->isValidImportLatLng($lat, $lng) ? (float) $lng : null,
+                'snapshot' => $this->importSnapshotFromResale($r),
+            ];
+        }
+
+        return [
+            'dup'      => $dup,
+            'business' => $business,
+            'address'  => $address,
+        ];
+    }
+
+    private function importAddressKey(string $cep, string $numero): string
+    {
+        $cep8 = Helper::normalizarCep8Digitos(preg_replace('/\D/', '', $cep));
+        $num = trim($numero);
+        if ($cep8 === '' || $num === '') {
+            return '';
+        }
+
+        return $cep8 . '|' . $num;
+    }
+
+    private function importBusinessKeyFromRow(array $row, string $cep, string $numero): string
+    {
+        return $this->importBusinessKeyFromFields(
+            $cep,
+            $numero,
+            $row['plano'] ?? '',
+            $row['especialidade'] ?? '',
+            $row['cnpj'] ?? ''
+        );
+    }
+
+    private function importBusinessKeyFromResale(array $resale): string
+    {
+        return $this->importBusinessKeyFromFields(
+            (string) ($resale['cep'] ?? ''),
+            (string) ($resale['numero'] ?? ''),
+            $resale['plano'] ?? '',
+            $resale['especialidade'] ?? '',
+            $resale['cnpj'] ?? ''
+        );
+    }
+
+    private function importBusinessKeyFromFields(string $cep, string $numero, $plano, $especialidade, $cnpj): string
+    {
+        $addrKey = $this->importAddressKey($cep, $numero);
+        if ($addrKey === '') {
+            return '';
+        }
+
+        $planoKey = Helper::normalizePlanoForDuplicate((string) $plano);
+        $esp = mb_strtolower(trim((string) $especialidade));
+        $cnpjKey = Helper::normalizeCnpjCrmForDuplicate((string) $cnpj);
+
+        return $addrKey . '|' . $planoKey . '|' . $esp . '|' . $cnpjKey;
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private function importSnapshotFromResale(array $resale): array
+    {
+        $nome = trim($resale['razao'] ?? $resale['fantasia'] ?? '');
+
+        return $this->importSnapshotFromFields(
+            $nome,
+            (string) ($resale['plano'] ?? ''),
+            (string) ($resale['especialidade'] ?? ''),
+            (string) ($resale['cnpj'] ?? ''),
+            (string) ($resale['whatsapp'] ?? ''),
+            (string) ($resale['telefone'] ?? ''),
+            (string) ($resale['horario'] ?? ''),
+            (string) ($resale['cep'] ?? ''),
+            (string) ($resale['numero'] ?? ''),
+            (string) ($resale['rua'] ?? ''),
+            (string) ($resale['bairro'] ?? ''),
+            (string) ($resale['municipio'] ?? ''),
+            (string) ($resale['estado'] ?? ''),
+            (string) ($resale['status'] ?? 'ativo')
+        );
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private function importSnapshotFromRow(array $row, string $cep, string $numero): array
+    {
+        $nome = trim($row['nome'] ?? $row['razao'] ?? $row['fantasia'] ?? '');
+
+        return $this->importSnapshotFromFields(
+            $nome,
+            (string) ($row['plano'] ?? ''),
+            (string) ($row['especialidade'] ?? ''),
+            (string) ($row['cnpj'] ?? ''),
+            (string) ($row['whatsapp'] ?? ''),
+            (string) ($row['telefone'] ?? ''),
+            (string) ($row['horario'] ?? ''),
+            $cep,
+            $numero,
+            (string) ($row['rua'] ?? ''),
+            (string) ($row['bairro'] ?? ''),
+            (string) ($row['municipio'] ?? ''),
+            (string) ($row['estado'] ?? ''),
+            (string) ($row['status'] ?? 'ativo')
+        );
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private function importSnapshotFromFields(
+        string $nome,
+        string $plano,
+        string $especialidade,
+        string $cnpj,
+        string $whatsapp,
+        string $telefone,
+        string $horario,
+        string $cep,
+        string $numero,
+        string $rua,
+        string $bairro,
+        string $municipio,
+        string $estado,
+        string $status
+    ): array {
+        return [
+            'nome'           => mb_strtolower(trim($nome)),
+            'plano'          => Helper::normalizePlanoForDuplicate($plano),
+            'especialidade'  => mb_strtolower(trim($especialidade)),
+            'cnpj'           => Helper::normalizeCnpjCrmForDuplicate($cnpj),
+            'whatsapp'       => preg_replace('/\D/', '', $whatsapp),
+            'telefone'       => preg_replace('/\D/', '', $telefone),
+            'horario'        => mb_strtolower(trim($horario)),
+            'cep'            => Helper::normalizarCep8Digitos(preg_replace('/\D/', '', $cep)),
+            'numero'         => trim($numero),
+            'rua'            => mb_strtolower(trim($rua)),
+            'bairro'         => mb_strtolower(trim($bairro)),
+            'municipio'      => mb_strtolower(trim($municipio)),
+            'estado'         => mb_strtolower(trim($estado)),
+            'status'         => mb_strtolower(trim($status)),
+        ];
+    }
+
+    /**
+     * @param array<string, string> $snapshot
+     */
+    private function importRowMatchesSnapshot(array $row, string $cep, string $numero, array $snapshot): bool
+    {
+        if (empty($snapshot)) {
+            return false;
+        }
+
+        return $this->importSnapshotFromRow($row, $cep, $numero) === $snapshot;
+    }
+
+    private function isValidImportLatLng($lat, $lng): bool
+    {
+        if ($lat === null || $lng === null || !is_numeric($lat) || !is_numeric($lng)) {
+            return false;
+        }
+
+        $latF = (float) $lat;
+        $lngF = (float) $lng;
+
+        return $latF != 0.0 && $lngF != 0.0 && !Helper::isPontoCentroideBrasil($latF, $lngF);
     }
 
     /**
@@ -558,8 +1684,8 @@ class Resale
             'municipio'     => $this->userProvidedText($resale['municipio'] ?? null),
             'estado'        => $this->userProvidedText($resale['estado'] ?? null),
             'pais'          => $this->userProvidedText($resale['pais'] ?? null),
-            'lat'       => round($result->latitude, 7),
-            'lng'       => round($result->longitude, 7),
+            'lat'       => round((float) ($result->latitude ?? 0), 7),
+            'lng'       => round((float) ($result->longitude ?? 0), 7),
             'status'    => $resale['status'] ?? 'ativo',
             'date'      => date('d-m-Y'),
             'token'     => $token,
