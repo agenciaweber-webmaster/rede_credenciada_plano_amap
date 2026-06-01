@@ -111,6 +111,7 @@ class Storage
     }
 
     /**
+<<<<<<< HEAD
      * Exclui várias revendas em uma única leitura/gravação do JSON.
      *
      * @param array<int, int> $ids
@@ -154,6 +155,8 @@ class Storage
     }
 
     /**
+=======
+>>>>>>> d50e80d5170b455c3f9851edb85fa9f773d63bbb
      * @return array<int, array<string, mixed>>
      */
     private function readResalesFile(): array

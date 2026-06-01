@@ -38,7 +38,11 @@
             <?php _e('Para cada especialidade atendida, deve existir um cadastro próprio. Não agrupe múltiplas especialidades em um único registro.', 'busca-cep'); ?>
         </p>
         <p class="buscacep-info-message">
+<<<<<<< HEAD
             <?php _e('O arquivo CSV deve estar em UTF-8. Vírgula ou ponto e vírgula como separador são aceitos. Se a coluna número estiver vazia, o sistema tenta extrair da coluna rua ou usa S/N.', 'busca-cep'); ?>
+=======
+            <?php _e('O arquivo CSV deve estar em UTF-8. Vírgula ou ponto e vírgula como separador são aceitos.', 'busca-cep'); ?>
+>>>>>>> d50e80d5170b455c3f9851edb85fa9f773d63bbb
         </p>
         <p class="buscacep-record-count">
             <?php _e('Total de cadastros:', 'busca-cep'); ?>

@@ -269,6 +269,7 @@
 
     function finishImportUi(success, message) {
         $('#import-csv').prop('disabled', false);
+<<<<<<< HEAD
         $('.import-form')[0].reset();
         $('.progress-bar-messages').empty();
         $('#process').css('display', 'none');
@@ -276,6 +277,15 @@
         if (success) {
             util.listAll();
         }
+=======
+        var alertClass = success ? 'alert-success' : 'alert-danger';
+        $('.progress-bar-messages').html('<div class="alert ' + alertClass + '">' + message + '</div>');
+        $('.import-form')[0].reset();
+        if (success) {
+            util.listAll();
+        }
+        setTimeout(function () { $('#process').css('display', 'none'); }, success ? 3000 : 8000);
+>>>>>>> d50e80d5170b455c3f9851edb85fa9f773d63bbb
     }
 
     function runImportBatch(importId, total) {
@@ -324,8 +334,13 @@
 
                 if (data.import_success) {
                     var msg = data.msg || ('Importação concluída. ' + (data.total_saved || 0) + ' registro(s) processado(s).');
+<<<<<<< HEAD
                     if (typeof data.record_count === 'number') {
                         util.updateRecordCount(data.record_count);
+=======
+                    if (data.erros > 0) {
+                        msg += ' ' + data.erros + ' linha(s) com erro.';
+>>>>>>> d50e80d5170b455c3f9851edb85fa9f773d63bbb
                     }
                     finishImportUi(true, msg);
                 } else {
@@ -400,9 +415,14 @@
                 }
 
                 var delimiterMsg = data.delimiter === ';' ? ' (detectado separador ponto e vírgula)' : '';
+<<<<<<< HEAD
                 var syncMsg = data.sync_mode ? ' — modo sincronização ativo' : '';
                 $('.progress-bar-messages').html(
                     '<div class="alert alert-info">Importando ' + data.total + ' registro(s)' + delimiterMsg + syncMsg + '...</div>'
+=======
+                $('.progress-bar-messages').html(
+                    '<div class="alert alert-info">Importando ' + data.total + ' registro(s)' + delimiterMsg + '...</div>'
+>>>>>>> d50e80d5170b455c3f9851edb85fa9f773d63bbb
                 );
                 updateImportProgress(0, data.total);
                 runImportBatch(data.import_id, data.total);
