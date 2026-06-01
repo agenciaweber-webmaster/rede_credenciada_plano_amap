@@ -33,7 +33,7 @@
             <?php _e('Para cada especialidade atendida, deve existir um cadastro próprio. Não agrupe múltiplas especialidades em um único registro.', 'busca-cep'); ?>
         </p>
         <p class="buscacep-info-message">
-            <?php _e('O arquivo CSV deve estar em UTF-8, utilizar vírgula como separador e aspas nos campos quando necessário.', 'busca-cep'); ?>
+            <?php _e('O arquivo CSV deve estar em UTF-8. Vírgula ou ponto e vírgula como separador são aceitos.', 'busca-cep'); ?>
         </p>
         <table class="table-revendas">
                     <thead>
