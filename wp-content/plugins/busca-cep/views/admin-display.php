@@ -1,5 +1,5 @@
 <?php if (!defined('ABSPATH')) exit; ?>
-<div class="wrap">
+<div class="wrap buscacep-admin">
     <main class="main">
         <h2 class="title-plugin">
             <?php _e('Rede Credenciada', 'busca-cep'); ?>
@@ -8,17 +8,22 @@
             <button class="btn btn-primary" id="btn-cadastrar" type="button">
                 <?php _e('Cadastrar', 'busca-cep'); ?>
             </button>
-            <button type="button" id="import-csv" class="btn btn-primary import-csv">
-                <?php _e('Importar CSV', 'busca-cep'); ?>
-            </button>
             <button type="button" id="export-csv" class="btn btn-primary export-csv">
                 <?php _e('Exportar', 'busca-cep'); ?>
             </button>
+            <button type="button" id="import-csv" class="btn btn-primary import-csv">
+                <?php _e('Importar CSV', 'busca-cep'); ?>
+            </button>
             <form class="import-form" id="import-form" enctype="multipart/form-data" action="return false();">
                 <input type="file" name="import" id="import" value="import" class="import" accept=".csv">
+                <label class="import-sync-option">
+                    <input type="checkbox" name="sync_mode" id="sync_mode" value="1">
+                    <?php _e('Modo sincronização (excluir cadastros ausentes na planilha)', 'busca-cep'); ?>
+                </label>
             </form>
             <input type="text" onkeyup="search()" id="bar" class="search-form" placeholder="<?php _e('Pesquisar', 'busca-cep'); ?>" title="<?php _e('Pesquisa', 'busca-cep'); ?>">
         </header>
+        <div id="buscacep-notices" class="buscacep-notices" aria-live="polite"></div>
         <br>
         <div class="form-group" id="process" style="display:none;">
             <div class="progress-bar-messages"></div>
@@ -33,8 +38,13 @@
             <?php _e('Para cada especialidade atendida, deve existir um cadastro próprio. Não agrupe múltiplas especialidades em um único registro.', 'busca-cep'); ?>
         </p>
         <p class="buscacep-info-message">
-            <?php _e('O arquivo CSV deve estar em UTF-8, utilizar vírgula como separador e aspas nos campos quando necessário.', 'busca-cep'); ?>
+            <?php _e('O arquivo CSV deve estar em UTF-8. Vírgula ou ponto e vírgula como separador são aceitos. Se a coluna número estiver vazia, o sistema tenta extrair da coluna rua ou usa S/N.', 'busca-cep'); ?>
         </p>
+        <p class="buscacep-record-count">
+            <?php _e('Total de cadastros:', 'busca-cep'); ?>
+            <strong id="record-count">—</strong>
+        </p>
+        <div class="buscacep-table-wrap">
         <table class="table-revendas">
                     <thead>
                 <tr>
@@ -57,6 +67,7 @@
             </thead>
             <tbody id="body-table"></tbody>
         </table>
+        </div>
 
         <!-- Modal de cadastro/edição -->
         <div class="modal fade revenda" id="modal-resale" tabindex="-1" role="dialog" aria-hidden="true" data-backdrop="static" data-keyboard="true">
@@ -135,6 +146,11 @@
                     </div>
                     <div class="modal-body">
                         <span class="modal-message" id="message"></span>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-dismiss="modal">
+                            <?php _e('Fechar', 'busca-cep'); ?>
+                        </button>
                     </div>
                 </div>
             </div>

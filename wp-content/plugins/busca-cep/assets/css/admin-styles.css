@@ -13,20 +13,68 @@
     color: #333;
 }
 
-/* Header */
-.up-header {
-    display: flex;
-    justify-content: space-evenly;
+/* Header / layout admin */
+#wpbody-content .buscacep-admin.wrap {
+    box-sizing: border-box;
+    max-width: 100%;
+    min-width: 0;
+    overflow-x: clip;
 }
 
-/* Tabela de Revendas */
+.buscacep-admin.wrap,
+.buscacep-admin .main {
+    box-sizing: border-box;
+    max-width: 100%;
+    min-width: 0;
+}
+
+.up-header {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 12px;
+    justify-content: flex-start;
+    max-width: 100%;
+    min-width: 0;
+}
+
+.buscacep-admin .import-form {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    margin: 0;
+    max-width: 100%;
+    min-width: 0;
+}
+
+.buscacep-admin .search-form {
+    max-width: 100%;
+    min-width: 180px;
+    box-sizing: border-box;
+}
+
+/* Tabela de Revendas — scroll só dentro do wrapper */
+.buscacep-table-wrap {
+    display: block;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    overflow-x: auto;
+    overflow-y: visible;
+    -webkit-overflow-scrolling: touch;
+    margin: 0;
+    box-shadow: 0 0 20px rgb(0 0 0 / 15%);
+}
+
 .table-revendas {
     border-collapse: collapse;
-    margin: 2% auto;
+    margin: 0;
     font-size: 0.8em;
     font-family: sans-serif;
-    width: 100%;
-    box-shadow: 0 0 20px rgb(0 0 0 / 15%);
+    width: auto;
+    min-width: 100%;
+    box-shadow: none;
 }
 
 .table-revendas thead tr {
@@ -38,8 +86,9 @@
 
 .table-revendas th,
 .table-revendas td {
-    padding: 2vh 1vh;
+    padding: 8px 10px;
     text-align: center;
+    white-space: nowrap;
 }
 
 .table-revendas tbody tr {
@@ -81,6 +130,15 @@
 
 .th-display {
     display: flex;
+    flex-wrap: nowrap;
+    justify-content: center;
+    gap: 4px;
+    min-width: 0;
+}
+
+.th-display .btn-revenda {
+    float: none;
+    margin: 0;
 }
 
 /* Modais */
@@ -313,6 +371,75 @@
 #modal-resale select.form-control:invalid,
 #modal-resale select.form-control[data-invalid="true"] {
     border-color: #e93b3b;
+}
+
+.buscacep-record-count {
+    margin: 0 0 2px;
+    font-size: 14px;
+    color: #1d2327;
+    text-align: right;
+}
+
+.buscacep-notices {
+    margin-top: 12px;
+}
+
+.buscacep-notice {
+    position: relative;
+    padding-right: 40px;
+    margin-bottom: 10px;
+}
+
+.buscacep-notice-close {
+    position: absolute;
+    top: 50%;
+    right: 12px;
+    transform: translateY(-50%);
+    border: 0;
+    background: transparent;
+    font-size: 22px;
+    line-height: 1;
+    color: inherit;
+    opacity: 0.65;
+    cursor: pointer;
+    padding: 0;
+}
+
+.buscacep-notice-close:hover,
+.buscacep-notice-close:focus {
+    opacity: 1;
+}
+
+/* Checkbox modo sincronização — padrão WP, sem anel azul ao clicar */
+.import-sync-option {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin: 0;
+    font-size: 13px;
+    line-height: 1.4;
+    cursor: pointer;
+    user-select: none;
+}
+
+.buscacep-admin .import-sync-option input[type="checkbox"] {
+    margin: 0;
+    cursor: pointer;
+    width: 1.125rem !important;
+    height: 1.125rem !important;
+    min-width: 1.125rem !important;
+}
+
+.buscacep-admin .import-sync-option input[type="checkbox"]:checked::before {
+    width: 1.625rem !important;
+    height: 1.625rem !important;
+    margin: -0.3rem 0 0 -0.3rem !important;
+}
+
+.buscacep-admin .import-sync-option input[type="checkbox"]:focus,
+.buscacep-admin .import-sync-option input[type="checkbox"]:active {
+    box-shadow: none !important;
+    outline: none !important;
 }
 
 /* Remove spinners dos inputs numéricos */

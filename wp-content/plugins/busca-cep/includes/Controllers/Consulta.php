@@ -203,11 +203,8 @@ class Consulta
         $html = '';
         $rows = $this->storage->getResales('*');
 
-        if (empty($rows)) {
-            return $html;
-        }
-
-        foreach ($rows as $row) {
+        if (!empty($rows)) {
+            foreach ($rows as $row) {
             $plano = $row['plano'] ?? '';
             $especialidade = $row['especialidade'] ?? '';
             $nome = $this->getNome($row);
@@ -236,9 +233,13 @@ class Consulta
             $html .= "<button type='button' id='{$row['id']}' class='btn-primary btn-revenda btn-delete-resale'>Excluir</button>";
             $html .= "</td>";
             $html .= "</tr>";
+            }
         }
 
-        return $html;
+        return new WP_REST_Response([
+            'html'  => $html,
+            'count' => count($rows),
+        ], 200);
     }
 
     /**

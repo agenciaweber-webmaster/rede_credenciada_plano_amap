@@ -29,6 +29,39 @@ class Helper
     }
 
     /**
+     * Resolve o número do endereço na importação: coluna numero, extração da rua ou S/N.
+     *
+     * @param array<string, mixed> $row
+     */
+    public static function resolveImportNumero(array $row): string
+    {
+        $numero = trim((string) ($row['numero'] ?? ''));
+        if ($numero !== '') {
+            return $numero;
+        }
+
+        $rua = trim((string) ($row['rua'] ?? ''));
+        if ($rua !== '') {
+            $patterns = [
+                '/\bn[º°o\.]?\s*(\d+[a-zA-Z\-\/]*)\b/iu',
+                '/\bnumero\s*(\d+[a-zA-Z\-\/]*)\b/iu',
+                '/\b(?:n|no|nr)\.?\s*(\d+[a-zA-Z\-\/]*)\b/iu',
+                '/,\s*(\d+[a-zA-Z\-\/]*)\s*$/u',
+            ];
+            foreach ($patterns as $pattern) {
+                if (preg_match($pattern, $rua, $matches)) {
+                    $extracted = trim((string) ($matches[1] ?? ''));
+                    if ($extracted !== '') {
+                        return $extracted;
+                    }
+                }
+            }
+        }
+
+        return 'S/N';
+    }
+
+    /**
      * CEP com 8 dígitos (apenas números), para faixas dos Correios.
      */
     public static function normalizarCep8Digitos(string $digits): string

@@ -181,7 +181,7 @@ class AdminConfig
         wp_enqueue_style(
             'buscacep-admin',
             BUSCACEP_PLUGIN_URL . 'assets/css/admin-styles.css',
-            [],
+            ['buscacep-bootstrap'],
             BUSCACEP_VERSION
         );
     }

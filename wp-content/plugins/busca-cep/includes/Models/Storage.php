@@ -38,6 +38,190 @@ class Storage
     }
 
     /**
+     * Insere várias revendas em uma única leitura/gravação do JSON (importação em massa).
+     *
+     * @param array<int, array<string, mixed>> $resales
+     */
+    public function bulkInsert(array $resales): int
+    {
+        if (empty($resales)) {
+            return 0;
+        }
+
+        $existing = $this->readResalesFile();
+        $maxId = 0;
+        foreach ($existing as $r) {
+            $id = (int) ($r['id'] ?? 0);
+            if ($id > $maxId) {
+                $maxId = $id;
+            }
+        }
+
+        $firstRow = $existing[0] ?? null;
+        $inserted = 0;
+
+        foreach ($resales as $resale) {
+            $maxId++;
+            $resale['id'] = $maxId;
+            $resale = $this->alignResaleColumns($resale, $firstRow);
+            if ($firstRow === null) {
+                $firstRow = $resale;
+            }
+            $existing[] = $resale;
+            $inserted++;
+        }
+
+        $this->writeResalesFile($existing);
+
+        return $inserted;
+    }
+
+    /**
+     * Atualiza várias revendas em uma única leitura/gravação do JSON.
+     *
+     * @param array<int, array<string, mixed>> $resales
+     */
+    public function bulkUpdate(array $resales): int
+    {
+        if (empty($resales)) {
+            return 0;
+        }
+
+        $existing = $this->readResalesFile();
+        $indexById = [];
+        foreach ($existing as $i => $r) {
+            $indexById[(int) ($r['id'] ?? 0)] = $i;
+        }
+
+        $updated = 0;
+        foreach ($resales as $resale) {
+            $id = (int) ($resale['id'] ?? 0);
+            if ($id <= 0 || !isset($indexById[$id])) {
+                continue;
+            }
+            $existing[$indexById[$id]] = array_merge($existing[$indexById[$id]], $resale);
+            $updated++;
+        }
+
+        if ($updated > 0) {
+            $this->writeResalesFile($existing);
+        }
+
+        return $updated;
+    }
+
+    /**
+     * Exclui várias revendas em uma única leitura/gravação do JSON.
+     *
+     * @param array<int, int> $ids
+     */
+    public function bulkDelete(array $ids): int
+    {
+        if (empty($ids)) {
+            return 0;
+        }
+
+        $deleteSet = [];
+        foreach ($ids as $id) {
+            $id = (int) $id;
+            if ($id > 0) {
+                $deleteSet[$id] = true;
+            }
+        }
+
+        if (empty($deleteSet)) {
+            return 0;
+        }
+
+        $existing = $this->readResalesFile();
+        $filtered = [];
+        $deleted = 0;
+
+        foreach ($existing as $r) {
+            $id = (int) ($r['id'] ?? 0);
+            if (isset($deleteSet[$id])) {
+                $deleted++;
+                continue;
+            }
+            $filtered[] = $r;
+        }
+
+        if ($deleted > 0) {
+            $this->writeResalesFile($filtered);
+        }
+
+        return $deleted;
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    private function readResalesFile(): array
+    {
+        $path = $this->getResalesFilePath();
+        if (!is_readable($path)) {
+            return [];
+        }
+
+        $raw = file_get_contents($path);
+        if ($raw === false || trim($raw) === '') {
+            return [];
+        }
+
+        $decoded = json_decode($raw, true);
+        if (!is_array($decoded)) {
+            throw new \RuntimeException('Arquivo resales.json inválido ou corrompido.');
+        }
+
+        return $decoded;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $rows
+     */
+    private function writeResalesFile(array $rows): void
+    {
+        $json = wp_json_encode($rows, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
+        if ($json === false) {
+            throw new \RuntimeException('Falha ao serializar resales.json.');
+        }
+
+        if (file_put_contents($this->getResalesFilePath(), $json, LOCK_EX) === false) {
+            throw new \RuntimeException('Falha ao gravar resales.json.');
+        }
+    }
+
+    private function getResalesFilePath(): string
+    {
+        return BUSCACEP_COMPONENTS_DIR . '/storage/' . $this->db;
+    }
+
+    /**
+     * @param array<string, mixed> $resale
+     * @param array<string, mixed>|null $firstRow
+     * @return array<string, mixed>
+     */
+    private function alignResaleColumns(array $resale, ?array $firstRow): array
+    {
+        if ($firstRow === null) {
+            return $resale;
+        }
+
+        $aligned = [];
+        foreach ($firstRow as $col => $value) {
+            $aligned[$col] = array_key_exists($col, $resale) ? $resale[$col] : null;
+        }
+        foreach ($resale as $col => $value) {
+            if (!array_key_exists($col, $aligned)) {
+                $aligned[$col] = $value;
+            }
+        }
+        $aligned['id'] = $resale['id'];
+
+        return $aligned;
+    }
+
+    /**
      * Insere uma ou mais revendas no banco JSON.
      */
     public function insert(array $data): array
