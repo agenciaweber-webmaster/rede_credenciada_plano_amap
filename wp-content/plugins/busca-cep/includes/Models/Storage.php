@@ -111,7 +111,6 @@ class Storage
     }
 
     /**
-<<<<<<< HEAD
      * Exclui várias revendas em uma única leitura/gravação do JSON.
      *
      * @param array<int, int> $ids
@@ -155,8 +154,6 @@ class Storage
     }
 
     /**
-=======
->>>>>>> d50e80d5170b455c3f9851edb85fa9f773d63bbb
      * @return array<int, array<string, mixed>>
      */
     private function readResalesFile(): array
@@ -293,6 +290,36 @@ class Storage
             'message' => $row
                 ? __('Rede credenciada excluída com sucesso', 'busca-cep')
                 : __('Desculpe, ocorreu um erro. Tente novamente.', 'busca-cep'),
+        ];
+    }
+
+    /**
+     * Total de cadastros no arquivo (leitura direta do JSON, mesma base da importação).
+     */
+    public function countResales(): int
+    {
+        return count($this->readResalesFile());
+    }
+
+    /**
+     * Página de revendas para a listagem admin (evita resposta HTTP gigante).
+     *
+     * @return array{rows: array<int, array<string, mixed>>, total: int, page: int, per_page: int, total_pages: int}
+     */
+    public function getResalesPage(int $page = 1, int $perPage = 200): array
+    {
+        $rows = $this->readResalesFile();
+        $total = count($rows);
+        $page = max(1, $page);
+        $perPage = max(1, min(500, $perPage));
+        $offset = ($page - 1) * $perPage;
+
+        return [
+            'rows'        => array_slice($rows, $offset, $perPage),
+            'total'       => $total,
+            'page'        => $page,
+            'per_page'    => $perPage,
+            'total_pages' => $total > 0 ? (int) ceil($total / $perPage) : 1,
         ];
     }
 

@@ -380,6 +380,26 @@
     text-align: right;
 }
 
+.buscacep-record-range {
+    color: #555;
+    font-weight: normal;
+    font-size: 0.95em;
+}
+
+.buscacep-pagination {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 12px;
+    margin: 12px 0 24px;
+    flex-wrap: wrap;
+}
+
+.buscacep-page-info {
+    min-width: 140px;
+    text-align: center;
+}
+
 .buscacep-notices {
     margin-top: 12px;
 }

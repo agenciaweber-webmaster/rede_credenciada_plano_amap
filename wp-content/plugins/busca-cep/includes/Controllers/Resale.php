@@ -173,17 +173,12 @@ class Resale
                 return $prepared;
             }
 
-<<<<<<< HEAD
             $params = $request->get_params();
             $syncMode = $this->isImportSyncModeEnabled($params);
 
             $meta = [
                 'created_at'     => time(),
                 'sync_mode'      => $syncMode,
-=======
-            $meta = [
-                'created_at'     => time(),
->>>>>>> d50e80d5170b455c3f9851edb85fa9f773d63bbb
                 'delimiter'      => $prepared['delimiter'],
                 'header_values'  => $prepared['header_values'],
                 'next_index'     => 0,
@@ -208,26 +203,20 @@ class Resale
 
             $lookup = $this->buildImportLookupIndexes($this->safeGetResales());
             $this->saveImportDupIndex($importId, $lookup['dup']);
-            $this->saveImportBusinessIndex($importId, $lookup['business']);
+            $this->saveImportBusinessIndex($importId, $lookup['snapshot']);
             $this->saveImportAddressGeoIndex($importId, $lookup['address']);
 
-<<<<<<< HEAD
             if ($syncMode) {
                 $this->saveImportExistingIds($importId, $this->collectResaleIds($this->safeGetResales()));
             }
 
-=======
->>>>>>> d50e80d5170b455c3f9851edb85fa9f773d63bbb
             return new WP_REST_Response([
                 'success'    => true,
                 'import_id'  => $importId,
                 'total'      => $prepared['total'],
                 'batch_size' => self::IMPORT_BATCH_SIZE,
                 'delimiter'  => $prepared['delimiter'],
-<<<<<<< HEAD
                 'sync_mode'  => $syncMode,
-=======
->>>>>>> d50e80d5170b455c3f9851edb85fa9f773d63bbb
             ], 200);
         } catch (\Throwable $e) {
             return new WP_REST_Response([
@@ -277,11 +266,7 @@ class Resale
                 ], 200);
             }
 
-<<<<<<< HEAD
-=======
-            $existingIndex = $this->loadImportDupIndex($importId) ?? [];
->>>>>>> d50e80d5170b455c3f9851edb85fa9f773d63bbb
-            $businessIndex = $this->loadImportBusinessIndex($importId) ?? [];
+            $snapshotIndex = $this->loadImportBusinessIndex($importId) ?? [];
             $addressGeoIndex = array_merge(
                 $this->loadImportAddressGeoIndex($importId) ?? [],
                 $this->loadRuntimeGeoCache($importId)
@@ -292,11 +277,7 @@ class Resale
                 $importId,
                 $meta,
                 self::IMPORT_BATCH_SIZE,
-<<<<<<< HEAD
-=======
-                $existingIndex,
->>>>>>> d50e80d5170b455c3f9851edb85fa9f773d63bbb
-                $businessIndex,
+                $snapshotIndex,
                 $addressGeoIndex,
                 $batchKeys,
                 $geoCache
@@ -342,7 +323,6 @@ class Resale
                 ], 200);
             }
 
-<<<<<<< HEAD
             $totalSaved = (int) ($meta['total_saved'] ?? 0);
             $unchanged = (int) ($meta['unchanged'] ?? 0);
             $removed = 0;
@@ -353,12 +333,6 @@ class Resale
             }
 
             $this->deleteImportArtifacts($importId);
-=======
-            $this->deleteImportArtifacts($importId);
-
-            $totalSaved = (int) ($meta['total_saved'] ?? 0);
-            $unchanged = (int) ($meta['unchanged'] ?? 0);
->>>>>>> d50e80d5170b455c3f9851edb85fa9f773d63bbb
 
             if ($totalSaved === 0 && $unchanged === 0) {
                 $msg = 'Nenhum registro foi importado.';
@@ -381,7 +355,7 @@ class Resale
 
             $msg = 'Importação concluída.';
             if ($meta['ignorados'] > 0) {
-                $msg .= " {$meta['ignorados']} linha(s) duplicada(s) ou ignorada(s).";
+                $msg .= " {$meta['ignorados']} linha(s) idêntica(s) à base ou repetida(s) na planilha.";
             }
             if ($unchanged > 0) {
                 $msg .= " {$unchanged} já existente(s) sem alteração (sem custo de API).";
@@ -392,17 +366,14 @@ class Resale
             if (!empty($meta['geo_api_calls'])) {
                 $msg .= " {$meta['geo_api_calls']} consulta(s) à API Google.";
             }
-<<<<<<< HEAD
             if ($removed > 0) {
                 $msg .= " {$removed} registro(s) ausente(s) na planilha foram excluído(s).";
             }
-            $recordCount = count($this->safeGetResales());
+            $recordCount = $this->storage->countResales();
             $msg .= " Total na base: " . number_format($recordCount, 0, '', '.') . ' cadastro(s).';
             if ((int) $meta['erros'] > 0) {
                 $msg .= ' ' . (int) $meta['erros'] . ' linha(s) com erro.';
             }
-=======
->>>>>>> d50e80d5170b455c3f9851edb85fa9f773d63bbb
 
             return new WP_REST_Response([
                 'success'        => true,
@@ -412,12 +383,9 @@ class Resale
                 'processed'      => $processed,
                 'total'          => $totalRows,
                 'total_saved'    => $totalSaved,
-<<<<<<< HEAD
                 'record_count'   => $recordCount,
                 'removed'        => $removed,
                 'sync_mode'      => !empty($meta['sync_mode']),
-=======
->>>>>>> d50e80d5170b455c3f9851edb85fa9f773d63bbb
                 'erros'          => (int) $meta['erros'],
                 'ignorados'      => (int) $meta['ignorados'],
                 'unchanged'      => $unchanged,
@@ -654,10 +622,7 @@ class Resale
             'localidade'    => 'municipio',
             'cidade'        => 'municipio',
             'cnpj/crm'      => 'cnpj',
-<<<<<<< HEAD
             'cnpj_crm'      => 'cnpj',
-=======
->>>>>>> d50e80d5170b455c3f9851edb85fa9f773d63bbb
         ];
 
         return array_map(static function ($h) use ($headerAliases) {
@@ -748,7 +713,6 @@ class Resale
         return $this->getImportTempDir() . '/' . $this->importSafeId($importId) . '.runtime-geo.jsonl';
     }
 
-<<<<<<< HEAD
     private function importExistingIdsPath(string $importId): string
     {
         return $this->getImportTempDir() . '/' . $this->importSafeId($importId) . '.existing-ids.json';
@@ -898,8 +862,6 @@ class Resale
         return $this->storage->bulkDelete($toDelete);
     }
 
-=======
->>>>>>> d50e80d5170b455c3f9851edb85fa9f773d63bbb
     /**
      * @param array<string, int> $index
      */
@@ -960,7 +922,7 @@ class Resale
     }
 
     /**
-     * @param array<string, array<string, mixed>> $index
+     * @param array<string, array<string, mixed>> $index Índice de snapshot (registros idênticos na base).
      */
     private function saveImportBusinessIndex(string $importId, array $index): void
     {
@@ -1097,11 +1059,8 @@ class Resale
             $this->importAddressGeoIndexPath($importId),
             $this->importRuntimeGeoCachePath($importId),
             $this->importBatchKeysPath($importId),
-<<<<<<< HEAD
             $this->importExistingIdsPath($importId),
             $this->importSeenIdsPath($importId),
-=======
->>>>>>> d50e80d5170b455c3f9851edb85fa9f773d63bbb
             $this->getImportTempDir() . '/' . $this->importSafeId($importId) . '.json',
         ] as $path) {
             if (is_file($path)) {
@@ -1113,11 +1072,7 @@ class Resale
     private function cleanupStaleImports(): void
     {
         $dir = $this->getImportTempDir();
-<<<<<<< HEAD
         $patterns = ['*.meta.json', '*.rows.jsonl', '*.pending.jsonl', '*.dup-index.json', '*.business-index.json', '*.address-geo-index.json', '*.runtime-geo.jsonl', '*.batch-keys.txt', '*.existing-ids.json', '*.seen-ids.txt', '*.json'];
-=======
-        $patterns = ['*.meta.json', '*.rows.jsonl', '*.pending.jsonl', '*.dup-index.json', '*.business-index.json', '*.address-geo-index.json', '*.runtime-geo.jsonl', '*.batch-keys.txt', '*.json'];
->>>>>>> d50e80d5170b455c3f9851edb85fa9f773d63bbb
         $limit = time() - (6 * (defined('HOUR_IN_SECONDS') ? HOUR_IN_SECONDS : 3600));
 
         foreach ($patterns as $pattern) {
@@ -1135,11 +1090,7 @@ class Resale
 
     /**
      * @param array<string, mixed> $meta
-<<<<<<< HEAD
-=======
-     * @param array<string, int> $existingIndex
->>>>>>> d50e80d5170b455c3f9851edb85fa9f773d63bbb
-     * @param array<string, array<string, mixed>> $businessIndex
+     * @param array<string, array<string, mixed>> $snapshotIndex
      * @param array<string, array{lat: float, lng: float}> $addressGeoIndex
      * @param array<string, true> $batchKeys
      * @param array<string, array<string, mixed>> $geoCache
@@ -1149,11 +1100,7 @@ class Resale
         string $importId,
         array &$meta,
         int $batchSize,
-<<<<<<< HEAD
-=======
-        array $existingIndex,
->>>>>>> d50e80d5170b455c3f9851edb85fa9f773d63bbb
-        array $businessIndex,
+        array $snapshotIndex,
         array $addressGeoIndex,
         array &$batchKeys,
         array &$geoCache
@@ -1194,11 +1141,7 @@ class Resale
                 $importId,
                 $row,
                 $meta,
-<<<<<<< HEAD
-=======
-                $existingIndex,
->>>>>>> d50e80d5170b455c3f9851edb85fa9f773d63bbb
-                $businessIndex,
+                $snapshotIndex,
                 $addressGeoIndex,
                 $batchKeys,
                 $geoCache
@@ -1220,11 +1163,7 @@ class Resale
     /**
      * @param array<string, string> $row
      * @param array<string, mixed> $meta
-<<<<<<< HEAD
-=======
-     * @param array<string, int> $existingIndex
->>>>>>> d50e80d5170b455c3f9851edb85fa9f773d63bbb
-     * @param array<string, array<string, mixed>> $businessIndex
+     * @param array<string, array<string, mixed>> $snapshotIndex
      * @param array<string, array{lat: float, lng: float}> $addressGeoIndex
      * @param array<string, true> $batchKeys
      * @param array<string, array<string, mixed>> $geoCache
@@ -1234,11 +1173,7 @@ class Resale
         string $importId,
         array $row,
         array &$meta,
-<<<<<<< HEAD
-=======
-        array $existingIndex,
->>>>>>> d50e80d5170b455c3f9851edb85fa9f773d63bbb
-        array $businessIndex,
+        array $snapshotIndex,
         array $addressGeoIndex,
         array &$batchKeys,
         array &$geoCache
@@ -1251,16 +1186,10 @@ class Resale
 
         $razao = trim($row['razao'] ?? $nome);
         $cep = preg_replace('/[^\d\-]/', '', $row['cep'] ?? '');
-<<<<<<< HEAD
         $numero = Helper::resolveImportNumero($row);
         $row['numero'] = $numero;
 
         if ($razao === '' || $cep === '') {
-=======
-        $numero = trim((string) ($row['numero'] ?? ''));
-
-        if ($razao === '' || $cep === '' || $numero === '') {
->>>>>>> d50e80d5170b455c3f9851edb85fa9f773d63bbb
             $meta['erros'] = (int) ($meta['erros'] ?? 0) + 1;
             return null;
         }
@@ -1269,49 +1198,40 @@ class Resale
             return null;
         }
 
-        $businessKey = $this->importBusinessKeyFromRow($row, $cep, $numero);
-<<<<<<< HEAD
-        if ($businessKey === '') {
+        $snapshot = $this->importSnapshotFromRow($row, $cep, $numero);
+        $snapshotKey = $this->importSnapshotKey($snapshot);
+        if ($snapshotKey === '') {
             $meta['erros'] = (int) ($meta['erros'] ?? 0) + 1;
             return null;
         }
 
-        $existingHit = isset($businessIndex[$businessKey])
-=======
-        $existingHit = ($businessKey !== '' && isset($businessIndex[$businessKey]))
->>>>>>> d50e80d5170b455c3f9851edb85fa9f773d63bbb
-            ? $businessIndex[$businessKey]
+        $existingHit = isset($snapshotIndex[$snapshotKey])
+            ? $snapshotIndex[$snapshotKey]
             : null;
 
-        if ($existingHit !== null && $this->importRowMatchesSnapshot($row, $cep, $numero, $existingHit['snapshot'] ?? [])) {
-<<<<<<< HEAD
+        if ($existingHit !== null) {
             $this->markImportSeenId($importId, (int) ($existingHit['id'] ?? 0), $meta);
-=======
->>>>>>> d50e80d5170b455c3f9851edb85fa9f773d63bbb
             $meta['unchanged'] = (int) ($meta['unchanged'] ?? 0) + 1;
             $meta['ignorados'] = (int) ($meta['ignorados'] ?? 0) + 1;
             return null;
         }
 
-        $knownId = ($existingHit !== null && !empty($existingHit['id'])) ? (int) $existingHit['id'] : null;
+        if (!empty($batchKeys[$snapshotKey])) {
+            $meta['ignorados'] = (int) ($meta['ignorados'] ?? 0) + 1;
+            return null;
+        }
+
         $result = $this->resolveImportGeoResult(
             $importId,
             $row,
             $cep,
             $numero,
             $geoCache,
-            $businessIndex,
             $addressGeoIndex,
             $meta
         );
 
         if (isset($result->error) || empty($result->latitude ?? null) || empty($result->longitude ?? null)) {
-<<<<<<< HEAD
-            if ($knownId !== null) {
-                $this->markImportSeenId($importId, $knownId, $meta);
-            }
-=======
->>>>>>> d50e80d5170b455c3f9851edb85fa9f773d63bbb
             $meta['erros'] = (int) ($meta['erros'] ?? 0) + 1;
             if (empty($meta['erro_geocoding']) && isset($result->error)) {
                 $meta['erro_geocoding'] = $result->error;
@@ -1320,42 +1240,9 @@ class Resale
         }
 
         $resale = $this->buildImportResaleData($row, $result, $cep, null);
-<<<<<<< HEAD
 
-        if (!empty($batchKeys[$businessKey])) {
-            if ($knownId !== null) {
-                $this->markImportSeenId($importId, $knownId, $meta);
-            } elseif (!empty($existingHit['id'])) {
-                $this->markImportSeenId($importId, (int) $existingHit['id'], $meta);
-            }
-=======
-        $batchKey = $this->duplicateKeyFromResale($resale);
-
-        if (!empty($batchKeys[$batchKey])) {
->>>>>>> d50e80d5170b455c3f9851edb85fa9f773d63bbb
-            $meta['ignorados'] = (int) ($meta['ignorados'] ?? 0) + 1;
-            return null;
-        }
-
-        if ($knownId !== null) {
-            $resale['id'] = $knownId;
-<<<<<<< HEAD
-        }
-
-        if (isset($resale['id'])) {
-            $this->markImportSeenId($importId, (int) $resale['id'], $meta);
-        }
-
-        $batchKeys[$businessKey] = true;
-        $this->appendImportBatchKey($importId, $businessKey);
-=======
-        } elseif (isset($existingIndex[$batchKey])) {
-            $resale['id'] = $existingIndex[$batchKey];
-        }
-
-        $batchKeys[$batchKey] = true;
-        $this->appendImportBatchKey($importId, $batchKey);
->>>>>>> d50e80d5170b455c3f9851edb85fa9f773d63bbb
+        $batchKeys[$snapshotKey] = true;
+        $this->appendImportBatchKey($importId, $snapshotKey);
 
         return $resale;
     }
@@ -1364,7 +1251,6 @@ class Resale
      * Reutiliza coordenadas da base ou do lote antes de consultar a API Google (custo).
      *
      * @param array<string, array<string, mixed>> $geoCache
-     * @param array<string, array<string, mixed>> $businessIndex
      * @param array<string, array{lat: float, lng: float}> $addressGeoIndex
      * @param array<string, mixed> $meta
      */
@@ -1374,7 +1260,6 @@ class Resale
         string $cep,
         string $numero,
         array &$geoCache,
-        array $businessIndex,
         array $addressGeoIndex,
         array &$meta
     ) {
@@ -1388,20 +1273,10 @@ class Resale
             ];
         }
 
-        $businessKey = $this->importBusinessKeyFromRow($row, $cep, $numero);
-        if ($businessKey !== '' && isset($businessIndex[$businessKey])) {
-            $hit = $businessIndex[$businessKey];
-            if ($this->isValidImportLatLng($hit['lat'] ?? null, $hit['lng'] ?? null)) {
-                $meta['geo_reused'] = (int) ($meta['geo_reused'] ?? 0) + 1;
-                return (object) [
-                    'latitude'  => (float) $hit['lat'],
-                    'longitude' => (float) $hit['lng'],
-                ];
-            }
-        }
-
+        $addressLine = $this->buildGeocodeAddressLine($row, $numero);
         $addressKey = $this->importAddressKey($cep, $numero);
-        if ($addressKey !== '' && isset($addressGeoIndex[$addressKey])) {
+
+        if ($addressLine === null && $addressKey !== '' && isset($addressGeoIndex[$addressKey])) {
             $coords = $addressGeoIndex[$addressKey];
             if ($this->isValidImportLatLng($coords['lat'] ?? null, $coords['lng'] ?? null)) {
                 $meta['geo_reused'] = (int) ($meta['geo_reused'] ?? 0) + 1;
@@ -1412,7 +1287,6 @@ class Resale
             }
         }
 
-        $addressLine = $this->buildGeocodeAddressLine($row, $numero);
         $geoCacheKey = $cep . '|' . $numero . '|' . ($addressLine ?? '');
         $result = $this->getGeoFromImportCache($geoCache, $geoCacheKey, $cep, $numero, $addressLine, $meta);
 
@@ -1569,12 +1443,12 @@ class Resale
     /**
      * Índices para reutilizar coordenadas e detectar registros idênticos sem chamar a API Google.
      *
-     * @return array{dup: array<string, int>, business: array<string, array<string, mixed>>, address: array<string, array{lat: float, lng: float}>}
+     * @return array{dup: array<string, int>, snapshot: array<string, array<string, mixed>>, address: array<string, array{lat: float, lng: float}>}
      */
     private function buildImportLookupIndexes(array $rows): array
     {
         $dup = [];
-        $business = [];
+        $snapshot = [];
         $address = [];
 
         foreach ($rows as $r) {
@@ -1596,22 +1470,21 @@ class Resale
                 }
             }
 
-            $bizKey = $this->importBusinessKeyFromResale($r);
-            if ($bizKey === '') {
+            $snapshotKey = $this->importSnapshotKeyFromResale($r);
+            if ($snapshotKey === '') {
                 continue;
             }
 
-            $business[$bizKey] = [
-                'id'       => (int) ($r['id'] ?? 0),
-                'lat'      => $this->isValidImportLatLng($lat, $lng) ? (float) $lat : null,
-                'lng'      => $this->isValidImportLatLng($lat, $lng) ? (float) $lng : null,
-                'snapshot' => $this->importSnapshotFromResale($r),
+            $snapshot[$snapshotKey] = [
+                'id'  => (int) ($r['id'] ?? 0),
+                'lat' => $this->isValidImportLatLng($lat, $lng) ? (float) $lat : null,
+                'lng' => $this->isValidImportLatLng($lat, $lng) ? (float) $lng : null,
             ];
         }
 
         return [
             'dup'      => $dup,
-            'business' => $business,
+            'snapshot' => $snapshot,
             'address'  => $address,
         ];
     }
@@ -1627,40 +1500,23 @@ class Resale
         return $cep8 . '|' . $num;
     }
 
-    private function importBusinessKeyFromRow(array $row, string $cep, string $numero): string
+    /**
+     * @param array<string, string> $snapshot
+     */
+    private function importSnapshotKey(array $snapshot): string
     {
-        return $this->importBusinessKeyFromFields(
-            $cep,
-            $numero,
-            $row['plano'] ?? '',
-            $row['especialidade'] ?? '',
-            $row['cnpj'] ?? ''
-        );
-    }
-
-    private function importBusinessKeyFromResale(array $resale): string
-    {
-        return $this->importBusinessKeyFromFields(
-            (string) ($resale['cep'] ?? ''),
-            (string) ($resale['numero'] ?? ''),
-            $resale['plano'] ?? '',
-            $resale['especialidade'] ?? '',
-            $resale['cnpj'] ?? ''
-        );
-    }
-
-    private function importBusinessKeyFromFields(string $cep, string $numero, $plano, $especialidade, $cnpj): string
-    {
-        $addrKey = $this->importAddressKey($cep, $numero);
-        if ($addrKey === '') {
+        if (empty($snapshot)) {
             return '';
         }
 
-        $planoKey = Helper::normalizePlanoForDuplicate((string) $plano);
-        $esp = mb_strtolower(trim((string) $especialidade));
-        $cnpjKey = Helper::normalizeCnpjCrmForDuplicate((string) $cnpj);
+        $json = wp_json_encode($snapshot, JSON_UNESCAPED_UNICODE);
 
-        return $addrKey . '|' . $planoKey . '|' . $esp . '|' . $cnpjKey;
+        return $json !== false ? $json : '';
+    }
+
+    private function importSnapshotKeyFromResale(array $resale): string
+    {
+        return $this->importSnapshotKey($this->importSnapshotFromResale($resale));
     }
 
     /**
@@ -1748,18 +1604,6 @@ class Resale
             'estado'         => mb_strtolower(trim($estado)),
             'status'         => mb_strtolower(trim($status)),
         ];
-    }
-
-    /**
-     * @param array<string, string> $snapshot
-     */
-    private function importRowMatchesSnapshot(array $row, string $cep, string $numero, array $snapshot): bool
-    {
-        if (empty($snapshot)) {
-            return false;
-        }
-
-        return $this->importSnapshotFromRow($row, $cep, $numero) === $snapshot;
     }
 
     private function isValidImportLatLng($lat, $lng): bool

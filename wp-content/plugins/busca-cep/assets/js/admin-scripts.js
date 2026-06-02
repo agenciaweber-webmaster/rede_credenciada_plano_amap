@@ -15,21 +15,105 @@
     $('input[name="telefone"]').mask('(00) 0000-0000');
 
     // Utilitários
+    var listState = {
+        page: 1,
+        totalPages: 1,
+    };
+
     var util = {
-        listAll: function () {
+        escHtml: function (value) {
+            return $('<div>').text(value == null ? '' : String(value)).html();
+        },
+
+        renderResaleRows: function (rows) {
+            if (!Array.isArray(rows) || rows.length === 0) {
+                return '<tr><td colspan="15">Nenhum cadastro nesta página.</td></tr>';
+            }
+
+            return rows.map(function (row) {
+                var id = row.id || '';
+                return '<tr id="filter" class="active-row">' +
+                    '<td>' + util.escHtml(row.nome) + '</td>' +
+                    '<td>' + util.escHtml(row.plano) + '</td>' +
+                    '<td>' + util.escHtml(row.especialidade) + '</td>' +
+                    '<td>' + util.escHtml(row.cnpj_crm) + '</td>' +
+                    '<td>' + util.escHtml(row.whatsapp) + '</td>' +
+                    '<td>' + util.escHtml(row.telefone) + '</td>' +
+                    '<td>' + util.escHtml(row.horario) + '</td>' +
+                    '<td>' + util.escHtml(row.cep) + '</td>' +
+                    '<td>' + util.escHtml(row.rua) + '</td>' +
+                    '<td>' + util.escHtml(row.numero) + '</td>' +
+                    '<td>' + util.escHtml(row.bairro) + '</td>' +
+                    '<td>' + util.escHtml(row.municipio) + '</td>' +
+                    '<td>' + util.escHtml(row.estado) + '</td>' +
+                    '<td>' + util.escHtml(row.status) + '</td>' +
+                    '<td class="th-display">' +
+                    '<button type="button" id="' + id + '" class="btn-primary btn-revenda btn-edit-resale">Editar</button> ' +
+                    '<button type="button" id="' + id + '" class="btn-primary btn-revenda btn-delete-resale">Excluir</button>' +
+                    '</td>' +
+                    '</tr>';
+            }).join('');
+        },
+
+        listAll: function (page) {
+            if (typeof page === 'number' && page > 0) {
+                listState.page = page;
+            }
+
+            $('#body-table').html(
+                '<tr><td colspan="15">Carregando...</td></tr>'
+            );
+
             $.ajax({
                 url: baseUrl + '/getall',
                 type: 'GET',
                 dataType: 'json',
+                cache: false,
+                data: {
+                    list_page: listState.page,
+                },
+                beforeSend: function (xhr) {
+                    if (typeof buscaCepAdmin !== 'undefined' && buscaCepAdmin.nonce) {
+                        xhr.setRequestHeader('X-WP-Nonce', buscaCepAdmin.nonce);
+                    }
+                },
                 success: function (data) {
-                    if (data && typeof data === 'object' && data.html !== undefined) {
-                        $('#body-table').html(data.html);
+                    if (data && Array.isArray(data.rows)) {
+                        $('#body-table').html(util.renderResaleRows(data.rows));
                         util.updateRecordCount(data.count);
+                        util.updatePagination(data);
                         return;
                     }
 
-                    $('#body-table').html(data || '');
-                    util.updateRecordCount($('#body-table tr').length);
+                    // Compatibilidade com resposta antiga em HTML
+                    if (data && typeof data === 'object' && data.html !== undefined) {
+                        $('#body-table').html(data.html);
+                        util.updateRecordCount(data.count);
+                        util.updatePagination(data);
+                        return;
+                    }
+
+                    $('#body-table').empty();
+                    util.refreshRecordCount();
+                },
+                error: function () {
+                    $('#body-table').html(
+                        '<tr><td colspan="15">Não foi possível carregar a listagem.</td></tr>'
+                    );
+                    util.refreshRecordCount();
+                },
+            });
+        },
+
+        refreshRecordCount: function () {
+            $.ajax({
+                url: baseUrl + '/count',
+                type: 'GET',
+                dataType: 'json',
+                success: function (data) {
+                    if (data && typeof data.count === 'number') {
+                        util.updateRecordCount(data.count);
+                    }
                 },
             });
         },
@@ -39,6 +123,36 @@
                 ? count.toLocaleString('pt-BR')
                 : '—';
             $('#record-count').text(display);
+        },
+
+        updatePagination: function (data) {
+            if (!data || typeof data !== 'object') {
+                return;
+            }
+
+            listState.page = data.page || 1;
+            listState.totalPages = data.total_pages || 1;
+
+            var from = data.from || 0;
+            var to = data.to || 0;
+            var total = data.count || 0;
+
+            if (total > 0) {
+                $('#record-range').text(
+                    ' (exibindo ' + from.toLocaleString('pt-BR') +
+                    '–' + to.toLocaleString('pt-BR') + ')'
+                );
+                $('#buscacep-page-info').text(
+                    'Página ' + listState.page.toLocaleString('pt-BR') +
+                    ' de ' + listState.totalPages.toLocaleString('pt-BR')
+                );
+            } else {
+                $('#record-range').text('');
+                $('#buscacep-page-info').text('Nenhum cadastro');
+            }
+
+            $('#buscacep-prev-page').prop('disabled', listState.page <= 1);
+            $('#buscacep-next-page').prop('disabled', listState.page >= listState.totalPages);
         },
 
         showPersistentNotice: function (message, type) {
@@ -121,9 +235,21 @@
             util.getToken();
             break;
         case 'revendas':
-            util.listAll();
+            util.listAll(1);
             break;
     }
+
+    $('#buscacep-prev-page').on('click', function () {
+        if (listState.page > 1) {
+            util.listAll(listState.page - 1);
+        }
+    });
+
+    $('#buscacep-next-page').on('click', function () {
+        if (listState.page < listState.totalPages) {
+            util.listAll(listState.page + 1);
+        }
+    });
 
     // Abrir modal de cadastro (evita conflito com Bootstrap do tema)
     $('#btn-cadastrar').on('click', function (e) {
@@ -269,7 +395,6 @@
 
     function finishImportUi(success, message) {
         $('#import-csv').prop('disabled', false);
-<<<<<<< HEAD
         $('.import-form')[0].reset();
         $('.progress-bar-messages').empty();
         $('#process').css('display', 'none');
@@ -277,15 +402,6 @@
         if (success) {
             util.listAll();
         }
-=======
-        var alertClass = success ? 'alert-success' : 'alert-danger';
-        $('.progress-bar-messages').html('<div class="alert ' + alertClass + '">' + message + '</div>');
-        $('.import-form')[0].reset();
-        if (success) {
-            util.listAll();
-        }
-        setTimeout(function () { $('#process').css('display', 'none'); }, success ? 3000 : 8000);
->>>>>>> d50e80d5170b455c3f9851edb85fa9f773d63bbb
     }
 
     function runImportBatch(importId, total) {
@@ -334,13 +450,8 @@
 
                 if (data.import_success) {
                     var msg = data.msg || ('Importação concluída. ' + (data.total_saved || 0) + ' registro(s) processado(s).');
-<<<<<<< HEAD
                     if (typeof data.record_count === 'number') {
                         util.updateRecordCount(data.record_count);
-=======
-                    if (data.erros > 0) {
-                        msg += ' ' + data.erros + ' linha(s) com erro.';
->>>>>>> d50e80d5170b455c3f9851edb85fa9f773d63bbb
                     }
                     finishImportUi(true, msg);
                 } else {
@@ -415,14 +526,9 @@
                 }
 
                 var delimiterMsg = data.delimiter === ';' ? ' (detectado separador ponto e vírgula)' : '';
-<<<<<<< HEAD
                 var syncMsg = data.sync_mode ? ' — modo sincronização ativo' : '';
                 $('.progress-bar-messages').html(
                     '<div class="alert alert-info">Importando ' + data.total + ' registro(s)' + delimiterMsg + syncMsg + '...</div>'
-=======
-                $('.progress-bar-messages').html(
-                    '<div class="alert alert-info">Importando ' + data.total + ' registro(s)' + delimiterMsg + '...</div>'
->>>>>>> d50e80d5170b455c3f9851edb85fa9f773d63bbb
                 );
                 updateImportProgress(0, data.total);
                 runImportBatch(data.import_id, data.total);

@@ -82,10 +82,22 @@ class RestApi
             ],
         ]);
 
-        // Listagem
+        // Listagem admin (paginada; list_page evita conflito com ?page=revendas do WP Admin)
         register_rest_route($namespace, '/getall', [
             'methods'  => 'GET',
             'callback' => [$this->consulta, 'listAll'],
+            'args'     => [
+                'list_page' => [
+                    'type'              => 'integer',
+                    'default'           => 1,
+                    'sanitize_callback' => 'absint',
+                ],
+            ],
+        ]);
+
+        register_rest_route($namespace, '/count', [
+            'methods'  => 'GET',
+            'callback' => [$this->consulta, 'countAll'],
         ]);
 
         register_rest_route($namespace, '/getToken', [

@@ -195,51 +195,88 @@ class Consulta
         return strlen($digits) === 14 ? 'CNPJ' : 'CRM';
     }
 
-    /**
-     * Lista todas as revendas em formato HTML para a tabela admin.
-     */
-    public function listAll()
-    {
-        $html = '';
-        $rows = $this->storage->getResales('*');
+    private const ADMIN_LIST_PAGE_SIZE = 200;
 
-        if (!empty($rows)) {
-            foreach ($rows as $row) {
-            $plano = $row['plano'] ?? '';
-            $especialidade = $row['especialidade'] ?? '';
-            $nome = $this->getNome($row);
-            $cnpjCrm = $this->formatCnpjCrm($row['cnpj'] ?? '');
-            $cnpjCrmLabel = $cnpjCrm ? $this->getCnpjCrmLabel($row['cnpj'] ?? '') : '';
-            $cnpjCrmExib = $cnpjCrm ? ($cnpjCrmLabel ? $cnpjCrmLabel . ': ' : '') . $cnpjCrm : '';
-            $whatsapp = $row['whatsapp'] ?? '';
-            $horario = $row['horario'] ?? '';
-            $html .= "<tr id='filter' class='active-row'>";
-            $html .= "<td>" . esc_html($nome) . "</td>";
-            $html .= "<td>{$plano}</td>";
-            $html .= "<td>{$especialidade}</td>";
-            $html .= "<td>" . esc_html($cnpjCrmExib) . "</td>";
-            $html .= "<td>{$whatsapp}</td>";
-            $html .= "<td>{$row['telefone']}</td>";
-            $html .= "<td>{$horario}</td>";
-            $html .= "<td>{$row['cep']}</td>";
-            $html .= "<td>{$row['rua']}</td>";
-            $html .= "<td>{$row['numero']}</td>";
-            $html .= "<td>{$row['bairro']}</td>";
-            $html .= "<td>{$row['municipio']}</td>";
-            $html .= "<td>{$row['estado']}</td>";
-            $html .= "<td>{$row['status']}</td>";
-            $html .= "<td class='th-display'>";
-            $html .= "<button type='button' id='{$row['id']}' class='btn-primary btn-revenda btn-edit-resale'>Editar</button>";
-            $html .= "<button type='button' id='{$row['id']}' class='btn-primary btn-revenda btn-delete-resale'>Excluir</button>";
-            $html .= "</td>";
-            $html .= "</tr>";
-            }
+    /**
+     * Lista revendas para a tabela admin (paginado, JSON).
+     */
+    public function listAll(\WP_REST_Request $request)
+    {
+        $page = $this->resolveAdminListPage($request);
+        $result = $this->storage->getResalesPage($page, self::ADMIN_LIST_PAGE_SIZE);
+
+        $rows = [];
+        foreach ($result['rows'] as $row) {
+            $rows[] = $this->formatAdminResaleRow($row);
         }
 
-        return new WP_REST_Response([
-            'html'  => $html,
-            'count' => count($rows),
+        $from = $result['total'] > 0 ? (($result['page'] - 1) * $result['per_page']) + 1 : 0;
+        $to = min($result['page'] * $result['per_page'], $result['total']);
+
+        $response = new WP_REST_Response([
+            'rows'        => $rows,
+            'count'       => $result['total'],
+            'returned'    => count($rows),
+            'page'        => $result['page'],
+            'per_page'    => $result['per_page'],
+            'total_pages' => $result['total_pages'],
+            'from'        => $from,
+            'to'          => $to,
         ], 200);
+
+        $response->header('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
+
+        return $response;
+    }
+
+    private function resolveAdminListPage(\WP_REST_Request $request): int
+    {
+        $query = $request->get_query_params();
+        $page = (int) ($request->get_param('list_page') ?? ($query['list_page'] ?? 0));
+        if ($page <= 0) {
+            $page = (int) ($request->get_param('page') ?? ($query['page'] ?? 1));
+        }
+
+        return max(1, $page);
+    }
+
+    /**
+     * Retorna apenas o total de cadastros (endpoint leve).
+     */
+    public function countAll()
+    {
+        return new WP_REST_Response([
+            'count' => $this->storage->countResales(),
+        ], 200);
+    }
+
+    /**
+     * @param array<string, mixed> $row
+     * @return array<string, mixed>
+     */
+    private function formatAdminResaleRow(array $row): array
+    {
+        $cnpjCrm = $this->formatCnpjCrm($row['cnpj'] ?? '');
+        $cnpjCrmLabel = $cnpjCrm ? $this->getCnpjCrmLabel($row['cnpj'] ?? '') : '';
+        $cnpjCrmExib = $cnpjCrm ? ($cnpjCrmLabel ? $cnpjCrmLabel . ': ' : '') . $cnpjCrm : '';
+
+        return [
+            'id'            => (int) ($row['id'] ?? 0),
+            'nome'          => $this->getNome($row),
+            'plano'         => (string) ($row['plano'] ?? ''),
+            'especialidade' => (string) ($row['especialidade'] ?? ''),
+            'cnpj_crm'      => $cnpjCrmExib,
+            'whatsapp'      => (string) ($row['whatsapp'] ?? ''),
+            'telefone'      => (string) ($row['telefone'] ?? ''),
+            'horario'       => (string) ($row['horario'] ?? ''),
+            'cep'           => (string) ($row['cep'] ?? ''),
+            'rua'           => (string) ($row['rua'] ?? ''),
+            'numero'        => (string) ($row['numero'] ?? ''),
+            'bairro'        => (string) ($row['bairro'] ?? ''),
+            'municipio'     => (string) ($row['municipio'] ?? ''),
+            'estado'        => (string) ($row['estado'] ?? ''),
+            'status'        => (string) ($row['status'] ?? ''),
+        ];
     }
 
     /**

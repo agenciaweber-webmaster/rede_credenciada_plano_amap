@@ -169,7 +169,7 @@ class AdminConfig
             'buscacep-admin',
             BUSCACEP_PLUGIN_URL . 'assets/js/admin-scripts.js',
             ['jquery', 'buscacep-mask', 'buscacep-bootstrap-js'],
-            BUSCACEP_VERSION,
+            $this->assetVersion('/assets/js/admin-scripts.js'),
             true
         );
 
@@ -182,7 +182,7 @@ class AdminConfig
             'buscacep-admin',
             BUSCACEP_PLUGIN_URL . 'assets/css/admin-styles.css',
             ['buscacep-bootstrap'],
-            BUSCACEP_VERSION
+            $this->assetVersion('/assets/css/admin-styles.css')
         );
     }
 

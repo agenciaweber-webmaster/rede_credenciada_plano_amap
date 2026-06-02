@@ -19,11 +19,7 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-<<<<<<< HEAD
-define('BUSCACEP_VERSION', '6.5.2');
-=======
-define('BUSCACEP_VERSION', '6.4.2');
->>>>>>> d50e80d5170b455c3f9851edb85fa9f773d63bbb
+define('BUSCACEP_VERSION', '6.5.3');
 define('BUSCACEP_MINIMUM_WP_VERSION', '6.5');
 define('BUSCACEP_PLUGIN_DIR', __DIR__);
 define('BUSCACEP_VIEW_DIR', BUSCACEP_PLUGIN_DIR . '/views');

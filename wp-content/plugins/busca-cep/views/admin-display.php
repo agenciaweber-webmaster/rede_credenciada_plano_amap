@@ -38,15 +38,12 @@
             <?php _e('Para cada especialidade atendida, deve existir um cadastro próprio. Não agrupe múltiplas especialidades em um único registro.', 'busca-cep'); ?>
         </p>
         <p class="buscacep-info-message">
-<<<<<<< HEAD
             <?php _e('O arquivo CSV deve estar em UTF-8. Vírgula ou ponto e vírgula como separador são aceitos. Se a coluna número estiver vazia, o sistema tenta extrair da coluna rua ou usa S/N.', 'busca-cep'); ?>
-=======
-            <?php _e('O arquivo CSV deve estar em UTF-8. Vírgula ou ponto e vírgula como separador são aceitos.', 'busca-cep'); ?>
->>>>>>> d50e80d5170b455c3f9851edb85fa9f773d63bbb
         </p>
         <p class="buscacep-record-count">
             <?php _e('Total de cadastros:', 'busca-cep'); ?>
             <strong id="record-count">—</strong>
+            <span class="buscacep-record-range" id="record-range"></span>
         </p>
         <div class="buscacep-table-wrap">
         <table class="table-revendas">
@@ -72,6 +69,11 @@
             <tbody id="body-table"></tbody>
         </table>
         </div>
+        <nav class="buscacep-pagination" id="buscacep-pagination" aria-label="<?php esc_attr_e('Paginação da listagem', 'busca-cep'); ?>">
+            <button type="button" class="btn btn-default" id="buscacep-prev-page" disabled><?php _e('Anterior', 'busca-cep'); ?></button>
+            <span class="buscacep-page-info" id="buscacep-page-info">—</span>
+            <button type="button" class="btn btn-default" id="buscacep-next-page" disabled><?php _e('Próxima', 'busca-cep'); ?></button>
+        </nav>
 
         <!-- Modal de cadastro/edição -->
         <div class="modal fade revenda" id="modal-resale" tabindex="-1" role="dialog" aria-hidden="true" data-backdrop="static" data-keyboard="true">
